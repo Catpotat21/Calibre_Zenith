@@ -19,11 +19,11 @@ class PauseViewModel : ViewModel() {
     var sessionTitle by mutableStateOf("")
     var sessionLaunchTrigger by mutableStateOf("")
     var sessionResistanceProfile by mutableStateOf("")
+    var sessionMeaning by mutableStateOf("") // ✨ Added: Clean home for Step 4 value assignment
     var isFromScheduledTask by mutableStateOf(false)
     var secondsLeft by mutableStateOf(0)
 
-    // Was `mutableStateOf("")` (a String) but PauseScreen.kt indexes it like a list
-    // (affirmations[i], affirmations.size) - fixed to match actual usage.
+    // Match actual list usage in PauseScreen
     var affirmations by mutableStateOf<List<String>>(emptyList())
 
     // --- GEMINI DATA FLOWS ---
@@ -50,6 +50,10 @@ class PauseViewModel : ViewModel() {
 
     fun clearSessionAndGoBack() {
         sessionTitle = ""
+        sessionLaunchTrigger = ""
+        sessionResistanceProfile = ""
+        sessionMeaning = ""
+        secondsLeft = 0
         currentScreen = "Dashboard"
     }
 
@@ -64,16 +68,53 @@ class PauseViewModel : ViewModel() {
         sessionLaunchTrigger = launchTrigger
         sessionResistanceProfile = resistanceProfile
         this.isFromScheduledTask = isFromScheduledTask
+
+        // Sync to Gemini pipeline in case it fires immediately
+        _taskName.value = title
+        _microStep.value = launchTrigger
+        _selectedMonster.value = resistanceProfile
     }
 
-    // TEMPORARY best-guess implementation - paste DashboardScreen.kt's call site and I'll
-    // match the exact signature/params it's actually being called with.
     fun startManualSession() {
         sessionTitle = ""
         sessionLaunchTrigger = ""
         sessionResistanceProfile = ""
+        sessionMeaning = ""
         isFromScheduledTask = false
         currentScreen = "Timer"
+    }
+
+    // --- ✨ THE BRIDGING ENGINE: CONNECTS WIZARD TO TILE GAME ---
+    fun launchTileEngine(
+        title: String,
+        trigger: String,
+        resistance: String,
+        meaning: String,
+        durationMinutes: Int
+    ) {
+        // 1. Commit metrics to Compose States (Instant UI reading)
+        sessionTitle = title
+        sessionLaunchTrigger = trigger
+        sessionResistanceProfile = resistance
+        sessionMeaning = meaning
+        secondsLeft = durationMinutes * 60
+
+        // 2. Commit metrics to Gemini StateFlow streams
+        _taskName.value = title
+        _microStep.value = trigger
+        _selectedMonster.value = resistance
+        _selectedHook.value = meaning
+        _sessionDurationSeconds.value = durationMinutes * 60
+
+        // 3. Shift the structural window over to the Game/Timer arena
+        currentScreen = "Timer"
+    }
+
+    // --- ✨ TIMER CORE: Helper function for your game clock tick ---
+    fun tickDownOneSecond() {
+        if (secondsLeft > 0) {
+            secondsLeft--
+        }
     }
 
     // --- STATE UPDATE MATRIX DISPATCHERS ---

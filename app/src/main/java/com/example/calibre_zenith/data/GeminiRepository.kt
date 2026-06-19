@@ -1,6 +1,6 @@
 package com.example.calibre_zenith.data
 
-import com.google.ai.client.generativeai.BuildConfig
+import com.example.calibre_zenith.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
