@@ -5,28 +5,38 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.calibre_zenith.data.GeminiRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class PauseViewModel : ViewModel() {
 
     private val geminiRepository = GeminiRepository()
 
-    // --- NAVIGATION & UI STATE (Compose State) ---
+    // --- NAVIGATION & UI STATE ---
     var currentScreen by mutableStateOf("Dashboard")
     var sessionTitle by mutableStateOf("")
     var sessionLaunchTrigger by mutableStateOf("")
     var sessionResistanceProfile by mutableStateOf("")
-    var sessionMeaning by mutableStateOf("") // ✨ Added: Clean home for Step 4 value assignment
+    var sessionMeaning by mutableStateOf("")
     var isFromScheduledTask by mutableStateOf(false)
     var secondsLeft by mutableStateOf(0)
 
-    // Match actual list usage in PauseScreen
-    var affirmations by mutableStateOf<List<String>>(emptyList())
+    // Baseline fallback pool for affirmations
+    var affirmations by mutableStateOf<List<String>>(
+        listOf(
+            "ACTION PRECEDES MOMENTUM. YOU DO NOT NEED CLARITY TO BEGIN.",
+            "YOUR UNIVERSE HAS SHRUNK TO EXACTLY THIS STEP. THE REST IS OFFLINE.",
+            "GIVE YOURSELF ABSOLUTE CLEARANCE TO PRODUCE A CHAOTIC FIRST ATTEMPT."
+        )
+    )
 
-    // --- GEMINI DATA FLOWS ---
+    var isGeminiOptimizing by mutableStateOf(false)
+
+    // --- GEMINI DATA FLOWS (Required by PreFlightScreen) ---
     private val _taskName = MutableStateFlow("")
     private val _microStep = MutableStateFlow("")
     private val _selectedMonster = MutableStateFlow("Perfectionism Paralysis")
@@ -41,7 +51,7 @@ class PauseViewModel : ViewModel() {
     val sessionDurationSeconds: StateFlow<Int> = _sessionDurationSeconds.asStateFlow()
     val directivesState: StateFlow<List<String>> = _directivesState.asStateFlow()
 
-    // --- NAVIGATION FUNCTIONS ---
+    // --- NAVIGATION FUNCTIONS (Required by Dashboard/Screens) ---
     fun navigateToDashboard() { currentScreen = "Dashboard" }
     fun navigateToPlanner() { currentScreen = "Planner" }
     fun navigateToTimerScreen() { currentScreen = "Timer" }
@@ -57,7 +67,7 @@ class PauseViewModel : ViewModel() {
         currentScreen = "Dashboard"
     }
 
-    // --- SESSION LOADERS ---
+    // --- SESSION LOADERS (Required by MainActivity) ---
     fun loadCognitiveSession(
         title: String,
         launchTrigger: String,
@@ -69,7 +79,6 @@ class PauseViewModel : ViewModel() {
         sessionResistanceProfile = resistanceProfile
         this.isFromScheduledTask = isFromScheduledTask
 
-        // Sync to Gemini pipeline in case it fires immediately
         _taskName.value = title
         _microStep.value = launchTrigger
         _selectedMonster.value = resistanceProfile
@@ -84,7 +93,7 @@ class PauseViewModel : ViewModel() {
         currentScreen = "Timer"
     }
 
-    // --- ✨ THE BRIDGING ENGINE: CONNECTS WIZARD TO TILE GAME ---
+    // --- BRIDGING ENGINE ---
     fun launchTileEngine(
         title: String,
         trigger: String,
@@ -92,50 +101,68 @@ class PauseViewModel : ViewModel() {
         meaning: String,
         durationMinutes: Int
     ) {
-        // 1. Commit metrics to Compose States (Instant UI reading)
         sessionTitle = title
         sessionLaunchTrigger = trigger
         sessionResistanceProfile = resistance
         sessionMeaning = meaning
         secondsLeft = durationMinutes * 60
 
-        // 2. Commit metrics to Gemini StateFlow streams
         _taskName.value = title
         _microStep.value = trigger
         _selectedMonster.value = resistance
         _selectedHook.value = meaning
         _sessionDurationSeconds.value = durationMinutes * 60
 
-        // 3. Shift the structural window over to the Game/Timer arena
+        viewModelScope.launch {
+            isGeminiOptimizing = true
+            try {
+                val processedResult = geminiRepository.fetchReframedDirectives(
+                    taskName = title,
+                    microStep = trigger,
+                    monster = resistance
+                )
+                sessionLaunchTrigger = processedResult.deconstructedStep
+                _microStep.value = processedResult.deconstructedStep
+                affirmations = processedResult.affirmations
+                _directivesState.value = processedResult.affirmations
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isGeminiOptimizing = false
+            }
+        }
         currentScreen = "Timer"
     }
 
-    // --- ✨ TIMER CORE: Helper function for your game clock tick ---
     fun tickDownOneSecond() {
-        if (secondsLeft > 0) {
-            secondsLeft--
-        }
+        if (secondsLeft > 0) secondsLeft--
     }
 
-    // --- STATE UPDATE MATRIX DISPATCHERS ---
+    // --- STATE DISPATCHERS (Required by PreFlightScreen) ---
     fun updateTaskName(value: String) { _taskName.value = value }
     fun updateMicroStep(value: String) { _microStep.value = value }
     fun updateSelectedMonster(value: String) { _selectedMonster.value = value }
     fun updateSelectedHook(value: String) { _selectedHook.value = value }
     fun updateSessionDurationSeconds(seconds: Int) { _sessionDurationSeconds.value = seconds }
 
-    // --- COGNITIVE WORKFLOW ENGINE ---
+    // --- WORKFLOW ENGINE (Required by PreFlightScreen) ---
     suspend fun launchCognitiveSessionWorkflow(context: Context) {
+        isGeminiOptimizing = true
         try {
-            val liveDirectives = geminiRepository.fetchReframedDirectives(
+            val processedResult = geminiRepository.fetchReframedDirectives(
                 taskName = _taskName.value,
                 microStep = _microStep.value,
                 monster = _selectedMonster.value
             )
-            _directivesState.value = liveDirectives
+            sessionLaunchTrigger = processedResult.deconstructedStep
+            _microStep.value = processedResult.deconstructedStep
+            affirmations = processedResult.affirmations
+            _directivesState.value = processedResult.affirmations
         } catch (e: Exception) {
             e.printStackTrace()
             throw e
+        } finally {
+            isGeminiOptimizing = false
         }
     }
 }
