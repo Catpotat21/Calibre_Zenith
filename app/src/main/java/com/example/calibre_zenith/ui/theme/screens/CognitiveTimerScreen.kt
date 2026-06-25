@@ -14,8 +14,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +36,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.calibre_zenith.data.CyberCatMatrix
@@ -46,12 +52,11 @@ import kotlin.time.Duration.Companion.seconds
 // =================================================================
 private val LuxBgGradient = Brush.verticalGradient(colors = listOf(Color(0xFF0D0D11), Color(0xFF050507)))
 private val LuxSurface = Color(0xFF141419)
-private val LuxAccentGold = Color(0xFFD4AF37) // Champagne Gold
+private val LuxAccentGold = Color(0xFFD4AF37)
 private val LuxTextPrimary = Color(0xFFF0F0F5)
 private val LuxTextMuted = Color(0xFFA2A2AB)
 private val LuxBorderSubtle = LuxAccentGold.copy(alpha = 0.15f)
 
-// ADDED REALIZATION_CHECK_IN PHASE
 enum class SessionPhase {
     SETUP, COGNITIVE_RADAR, MICRO_COMMITMENT, CHECKPOINT, DEEP_WORK_SETUP, DEEP_WORK, REALIZATION_CHECK_IN, AFFIRMATION_EXIT
 }
@@ -72,7 +77,9 @@ fun CognitiveTimerScreen(viewModel: PauseViewModel) {
     var taskEndGoal by remember { mutableStateOf("") }
     var targetTaskDurationMinutes by remember { mutableFloatStateOf(25f) }
 
-    // NEW: Store the debrief log
+    // ── NEW: sub-goals list lives here so it survives phase transitions ──
+    val taskSubGoals = remember { mutableStateListOf<String>() }
+
     var realizationLog by remember { mutableStateOf("") }
 
     LaunchedEffect(viewModel.secondsLeft) {
@@ -101,25 +108,50 @@ fun CognitiveTimerScreen(viewModel: PauseViewModel) {
         }
         SessionPhase.COGNITIVE_RADAR -> ActiveGameEnginePhase(viewModel)
         SessionPhase.MICRO_COMMITMENT -> MicroCommitmentPhase(onTimeUp = { currentPhase = SessionPhase.CHECKPOINT })
-        SessionPhase.CHECKPOINT -> CheckpointPhase(onContinue = { currentPhase = SessionPhase.DEEP_WORK_SETUP }, onBreak = { currentPhase = SessionPhase.REALIZATION_CHECK_IN })
-        SessionPhase.DEEP_WORK_SETUP -> DeferredDeepWorkSetupPhase(taskEndGoal, { taskEndGoal = it }, targetTaskDurationMinutes, { targetTaskDurationMinutes = it }, { currentPhase = SessionPhase.DEEP_WORK })
+        SessionPhase.CHECKPOINT -> CheckpointPhase(
+            onContinue = { currentPhase = SessionPhase.DEEP_WORK_SETUP },
+            onBreak = { currentPhase = SessionPhase.REALIZATION_CHECK_IN }
+        )
 
-        // When Deep Work finishes or is aborted, go to Realizations
-        SessionPhase.DEEP_WORK -> DeepWorkExecutionPhase(taskEndGoal, targetTaskDurationMinutes.toInt(), { currentPhase = SessionPhase.REALIZATION_CHECK_IN })
+        // ── MODIFIED: pass sub-goals callbacks ──
+        SessionPhase.DEEP_WORK_SETUP -> DeferredDeepWorkSetupPhase(
+            endGoal = taskEndGoal,
+            onEndGoalChange = { taskEndGoal = it },
+            taskMinutes = targetTaskDurationMinutes,
+            onTaskTimeChange = { targetTaskDurationMinutes = it },
+            subGoals = taskSubGoals,
+            onAddSubGoal = { taskSubGoals.add("") },
+            onSubGoalChange = { index, value -> taskSubGoals[index] = value },
+            onRemoveSubGoal = { taskSubGoals.removeAt(it) },
+            onLaunchDeepWork = { currentPhase = SessionPhase.DEEP_WORK }
+        )
 
-        // NEW PHASE
+        // ── MODIFIED: pass filtered sub-goals list ──
+        SessionPhase.DEEP_WORK -> DeepWorkExecutionPhase(
+            endGoal = taskEndGoal,
+            durationMinutes = targetTaskDurationMinutes.toInt(),
+            subGoals = taskSubGoals.filter { it.isNotBlank() },
+            onSessionCompleteOrAborted = { currentPhase = SessionPhase.REALIZATION_CHECK_IN }
+        )
+
         SessionPhase.REALIZATION_CHECK_IN -> RealizationCheckInPhase(
             realizationText = realizationLog,
             onRealizationChange = { realizationLog = it },
             onComplete = { currentPhase = SessionPhase.AFFIRMATION_EXIT }
         )
 
-        SessionPhase.AFFIRMATION_EXIT -> AffirmationExitPhase({ currentPhase = SessionPhase.SETUP; viewModel.clearSessionAndGoBack() })
+        SessionPhase.AFFIRMATION_EXIT -> AffirmationExitPhase({
+            // Reset everything on full session completion
+            taskSubGoals.clear()
+            currentPhase = SessionPhase.SETUP
+            viewModel.clearSessionAndGoBack()
+        })
     }
 }
 
-// ... [Keep GuidedSetupPhase, ActiveGameEnginePhase, MicroCommitmentPhase, CheckpointPhase, DeferredDeepWorkSetupPhase unchanged] ...
-
+// =================================================================
+// PHASE A: GUIDED SETUP  (unchanged)
+// =================================================================
 @Composable
 fun GuidedSetupPhase(exactGoal: String, onExactGoalChange: (String) -> Unit, sixtySecondActivity: String, onSixtySecondActivityChange: (String) -> Unit, selectedFriction: String, onFrictionChange: (String) -> Unit, customFriction: String, onCustomFrictionChange: (String) -> Unit, selectedMeaning: String, onMeaningChange: (String) -> Unit, customMeaning: String, onCustomMeaningChange: (String) -> Unit, cognitiveMinutes: Float, onCognitiveTimeChange: (Float) -> Unit, onLaunch: () -> Unit) {
     var step by remember { mutableIntStateOf(1) }
@@ -171,6 +203,9 @@ fun GuidedSetupPhase(exactGoal: String, onExactGoalChange: (String) -> Unit, six
     }
 }
 
+// =================================================================
+// PHASE B: ACTIVE GAME ENGINE  (unchanged)
+// =================================================================
 @Composable
 fun ActiveGameEnginePhase(viewModel: PauseViewModel) {
     val haptic = LocalHapticFeedback.current
@@ -226,6 +261,9 @@ fun ActiveGameEnginePhase(viewModel: PauseViewModel) {
     }
 }
 
+// =================================================================
+// PHASE C: MICRO-COMMITMENT  (unchanged)
+// =================================================================
 @Composable
 fun MicroCommitmentPhase(onTimeUp: () -> Unit) {
     var secondsLeft by remember { mutableIntStateOf(60) }
@@ -239,6 +277,9 @@ fun MicroCommitmentPhase(onTimeUp: () -> Unit) {
     }
 }
 
+// =================================================================
+// PHASE D: CHECKPOINT  (unchanged)
+// =================================================================
 @Composable
 fun CheckpointPhase(onContinue: () -> Unit, onBreak: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(LuxBgGradient).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -252,56 +293,295 @@ fun CheckpointPhase(onContinue: () -> Unit, onBreak: () -> Unit) {
     }
 }
 
+// =================================================================
+// PHASE E: DEEP WORK SETUP  ── MODIFIED: sub-goals support ──
+// =================================================================
 @Composable
-fun DeferredDeepWorkSetupPhase(endGoal: String, onEndGoalChange: (String) -> Unit, taskMinutes: Float, onTaskTimeChange: (Float) -> Unit, onLaunchDeepWork: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().background(LuxBgGradient).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+fun DeferredDeepWorkSetupPhase(
+    endGoal: String,
+    onEndGoalChange: (String) -> Unit,
+    taskMinutes: Float,
+    onTaskTimeChange: (Float) -> Unit,
+    subGoals: List<String>,
+    onAddSubGoal: () -> Unit,
+    onSubGoalChange: (Int, String) -> Unit,
+    onRemoveSubGoal: (Int) -> Unit,
+    onLaunchDeepWork: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(LuxBgGradient)
+            .verticalScroll(rememberScrollState())   // scrollable so sub-goals never overflow
+            .padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(56.dp))
+
         Text("MOMENTUM SECURED", color = LuxAccentGold, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 3.sp)
         Spacer(modifier = Modifier.height(12.dp))
         Text("Since you're already moving, let's define the finish line.", color = LuxTextMuted, textAlign = TextAlign.Center, fontSize = 13.sp)
-        Spacer(modifier = Modifier.height(48.dp))
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = LuxSurface), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, LuxBorderSubtle)) {
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = LuxSurface),
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, LuxBorderSubtle)
+        ) {
             Column(modifier = Modifier.padding(28.dp)) {
+
+                // ── Main task ──────────────────────────────────────────
                 Text("SPECIFIC END GOAL", fontWeight = FontWeight.SemiBold, color = LuxTextPrimary, fontSize = 11.sp, letterSpacing = 2.sp)
                 Spacer(modifier = Modifier.height(12.dp))
                 LuxTextField(endGoal, onEndGoalChange, "What does 'done' look like?")
-                Spacer(modifier = Modifier.height(40.dp))
+
+                Spacer(modifier = Modifier.height(28.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(LuxBorderSubtle))
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ── Milestones (optional) ──────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("MILESTONES", fontWeight = FontWeight.SemiBold, color = LuxTextPrimary, fontSize = 11.sp, letterSpacing = 2.sp)
+                        Text("optional", fontSize = 10.sp, color = LuxTextMuted, letterSpacing = 1.sp)
+                    }
+                    // Sleek + button
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(LuxAccentGold.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
+                            .border(1.dp, LuxAccentGold.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                            .clickable { onAddSubGoal() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Add milestone",
+                            tint = LuxAccentGold,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+
+                if (subGoals.isEmpty()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        "Tap + to break the goal into milestones",
+                        fontSize = 11.sp,
+                        color = LuxTextMuted.copy(alpha = 0.45f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    subGoals.forEachIndexed { index, subGoal ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Bullet dot
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .background(LuxAccentGold.copy(alpha = 0.55f), CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            OutlinedTextField(
+                                value = subGoal,
+                                onValueChange = { onSubGoalChange(index, it) },
+                                modifier = Modifier.weight(1f),
+                                placeholder = {
+                                    Text("Milestone ${index + 1}", color = LuxTextMuted, fontSize = 12.sp)
+                                },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 13.sp, color = LuxTextPrimary),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = LuxAccentGold.copy(alpha = 0.55f),
+                                    unfocusedBorderColor = LuxBorderSubtle,
+                                    cursorColor = LuxAccentGold,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
+                                )
+                            )
+                            // Remove button
+                            IconButton(
+                                onClick = { onRemoveSubGoal(index) },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Remove milestone",
+                                    tint = LuxTextMuted.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(LuxBorderSubtle))
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ── Duration ───────────────────────────────────────────
                 Text("TARGET EXECUTION TIME", fontWeight = FontWeight.SemiBold, color = LuxTextPrimary, fontSize = 11.sp, letterSpacing = 2.sp)
-                Text("${taskMinutes.toInt()} MIN", modifier = Modifier.fillMaxWidth().padding(top = 16.dp), textAlign = TextAlign.Center, fontSize = 36.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace, color = LuxAccentGold)
-                Slider(value = taskMinutes, onValueChange = onTaskTimeChange, valueRange = 5f..120f, steps = 23, colors = SliderDefaults.colors(thumbColor = LuxAccentGold, activeTrackColor = LuxAccentGold, inactiveTrackColor = LuxSurface, activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent))
+                Text(
+                    "${taskMinutes.toInt()} MIN",
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    textAlign = TextAlign.Center,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Light,
+                    fontFamily = FontFamily.Monospace,
+                    color = LuxAccentGold
+                )
+                Slider(
+                    value = taskMinutes,
+                    onValueChange = onTaskTimeChange,
+                    valueRange = 5f..120f,
+                    steps = 23,
+                    colors = SliderDefaults.colors(
+                        thumbColor = LuxAccentGold,
+                        activeTrackColor = LuxAccentGold,
+                        inactiveTrackColor = LuxSurface,
+                        activeTickColor = Color.Transparent,
+                        inactiveTickColor = Color.Transparent
+                    )
+                )
             }
         }
-        Spacer(modifier = Modifier.height(48.dp))
-        Button(onClick = onLaunchDeepWork, modifier = Modifier.fillMaxWidth().height(64.dp), colors = ButtonDefaults.buttonColors(containerColor = LuxAccentGold, disabledContainerColor = LuxSurface), shape = RoundedCornerShape(16.dp), enabled = endGoal.isNotBlank()) { Text("ENGAGE DEEP WORK", color = if(endGoal.isNotBlank()) Color(0xFF050507) else LuxTextMuted, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+
+        Spacer(modifier = Modifier.height(40.dp))
+        Button(
+            onClick = onLaunchDeepWork,
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = LuxAccentGold,
+                disabledContainerColor = LuxSurface
+            ),
+            shape = RoundedCornerShape(16.dp),
+            enabled = endGoal.isNotBlank()
+        ) {
+            Text(
+                "ENGAGE DEEP WORK",
+                color = if (endGoal.isNotBlank()) Color(0xFF050507) else LuxTextMuted,
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(40.dp))
     }
 }
 
+// =================================================================
+// PHASE F: DEEP WORK EXECUTION  ── MODIFIED: crossable checklist ──
+// =================================================================
 @Composable
-fun DeepWorkExecutionPhase(endGoal: String, durationMinutes: Int, onSessionCompleteOrAborted: () -> Unit) {
+fun DeepWorkExecutionPhase(
+    endGoal: String,
+    durationMinutes: Int,
+    subGoals: List<String>,
+    onSessionCompleteOrAborted: () -> Unit
+) {
     var taskSecondsLeft by remember { mutableIntStateOf(durationMinutes * 60) }
-    LaunchedEffect(key1 = taskSecondsLeft) { if (taskSecondsLeft > 0) { delay(1.seconds); taskSecondsLeft-- } }
+    LaunchedEffect(key1 = taskSecondsLeft) {
+        if (taskSecondsLeft > 0) { delay(1.seconds); taskSecondsLeft-- }
+    }
     val formattedTaskTime = String.format(Locale.getDefault(), "%02d:%02d", taskSecondsLeft / 60, taskSecondsLeft % 60)
 
-    Column(modifier = Modifier.fillMaxSize().background(LuxBgGradient).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    // Per-item completion state (keyed on list size so a re-enter resets it)
+    var mainTaskDone by remember { mutableStateOf(false) }
+    val subGoalsDone = remember(subGoals.size) {
+        mutableStateListOf<Boolean>().also { list ->
+            repeat(subGoals.size) { list.add(false) }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(LuxBgGradient).padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         Text("DEEP WORK RUNNING", color = LuxAccentGold, letterSpacing = 4.sp, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(40.dp))
-        Text(formattedTaskTime, fontSize = 80.sp, fontWeight = FontWeight.ExtraLight, fontFamily = FontFamily.Monospace, color = LuxTextPrimary, letterSpacing = 6.sp)
-        Spacer(modifier = Modifier.height(56.dp))
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = LuxSurface), border = BorderStroke(1.dp, LuxBorderSubtle), shape = RoundedCornerShape(20.dp)) {
-            Column(modifier = Modifier.padding(28.dp)) {
+        Text(
+            formattedTaskTime,
+            fontSize = 80.sp,
+            fontWeight = FontWeight.ExtraLight,
+            fontFamily = FontFamily.Monospace,
+            color = LuxTextPrimary,
+            letterSpacing = 6.sp
+        )
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = LuxSurface),
+            border = BorderStroke(1.dp, LuxBorderSubtle),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
                 Text("TARGET OUTPUT", fontSize = 10.sp, color = LuxTextMuted, letterSpacing = 2.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(endGoal.uppercase(), color = LuxTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, lineHeight = 24.sp, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── Main task row ──────────────────────────────────────
+                TaskCheckRow(
+                    text = endGoal.uppercase(),
+                    isDone = mainTaskDone,
+                    onToggle = { mainTaskDone = !mainTaskDone },
+                    isMainTask = true
+                )
+
+                // ── Sub-goal rows (indented) ───────────────────────────
+                if (subGoals.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    subGoals.forEachIndexed { index, subGoal ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(modifier = Modifier.padding(start = 10.dp)) {
+                            TaskCheckRow(
+                                text = subGoal,
+                                isDone = subGoalsDone.getOrElse(index) { false },
+                                onToggle = {
+                                    if (index < subGoalsDone.size) {
+                                        subGoalsDone[index] = !subGoalsDone[index]
+                                    }
+                                },
+                                isMainTask = false
+                            )
+                        }
+                    }
+                }
             }
         }
-        Spacer(modifier = Modifier.height(80.dp))
-        OutlinedButton(onClick = onSessionCompleteOrAborted, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, if (taskSecondsLeft == 0) LuxAccentGold else Color(0xFF4A1515))) {
-            Text(if (taskSecondsLeft == 0) "COMPLETE SESSION" else "ABORT BLOCK", color = if (taskSecondsLeft == 0) LuxAccentGold else Color(0xFFD94A4A), letterSpacing = 2.sp, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+        Spacer(modifier = Modifier.height(72.dp))
+        OutlinedButton(
+            onClick = onSessionCompleteOrAborted,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (taskSecondsLeft == 0) LuxAccentGold else Color(0xFF4A1515))
+        ) {
+            Text(
+                if (taskSecondsLeft == 0) "COMPLETE SESSION" else "ABORT BLOCK",
+                color = if (taskSecondsLeft == 0) LuxAccentGold else Color(0xFFD94A4A),
+                letterSpacing = 2.sp,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
 
 // =================================================================
-// 🧠 NEW PHASE H: REALIZATION CHECK-IN
+// PHASE G: REALIZATION CHECK-IN  (unchanged)
 // =================================================================
 @Composable
 fun RealizationCheckInPhase(
@@ -318,7 +598,6 @@ fun RealizationCheckInPhase(
         Spacer(modifier = Modifier.height(12.dp))
         Text("Take a moment to record the friction you felt, how you overcame it, and what you learned.", color = LuxTextMuted, textAlign = TextAlign.Center, fontSize = 13.sp, lineHeight = 20.sp)
         Spacer(modifier = Modifier.height(40.dp))
-
         Card(
             modifier = Modifier.fillMaxWidth().weight(1f),
             colors = CardDefaults.cardColors(containerColor = LuxSurface),
@@ -338,9 +617,7 @@ fun RealizationCheckInPhase(
                 )
             )
         }
-
         Spacer(modifier = Modifier.height(32.dp))
-
         Button(
             onClick = onComplete,
             modifier = Modifier.fillMaxWidth().height(64.dp),
@@ -352,6 +629,9 @@ fun RealizationCheckInPhase(
     }
 }
 
+// =================================================================
+// PHASE H: AFFIRMATION EXIT  (unchanged)
+// =================================================================
 @Composable
 fun AffirmationExitPhase(onAcknowledge: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(LuxBgGradient).padding(36.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -364,7 +644,7 @@ fun AffirmationExitPhase(onAcknowledge: () -> Unit) {
 }
 
 // =================================================================
-// 🧱 LUXURY UTILITIES
+// 🧱 LUXURY UTILITIES  (unchanged)
 // =================================================================
 @Composable
 fun StepSliderInput(title: String, value: Float, valueRange: ClosedFloatingPointRange<Float>, steps: Int, unitLabel: String, onValueChange: (Float) -> Unit) {
@@ -406,4 +686,57 @@ fun LuxTextField(value: String, onValueChange: (String) -> Unit, label: String, 
         singleLine = singleLine,
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LuxAccentGold, unfocusedBorderColor = LuxBorderSubtle, cursorColor = LuxAccentGold, focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
     )
+}
+
+// =================================================================
+// ✅ NEW: REUSABLE CROSSABLE TASK ROW
+// =================================================================
+@Composable
+private fun TaskCheckRow(
+    text: String,
+    isDone: Boolean,
+    onToggle: () -> Unit,
+    isMainTask: Boolean = true
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Custom checkbox
+        Box(
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(if (isMainTask) 20.dp else 16.dp)
+                .background(
+                    color = if (isDone) LuxAccentGold else Color.Transparent,
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.5.dp,
+                    color = if (isDone) LuxAccentGold else LuxTextMuted.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(4.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isDone) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = Color(0xFF050507),
+                    modifier = Modifier.size(if (isMainTask) 12.dp else 9.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(if (isMainTask) 12.dp else 10.dp))
+        Text(
+            text = text,
+            color = if (isDone) LuxTextMuted else LuxTextPrimary,
+            fontSize = if (isMainTask) 14.sp else 13.sp,
+            fontWeight = if (isMainTask) FontWeight.Medium else FontWeight.Normal,
+            lineHeight = 20.sp,
+            textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+        )
+    }
 }
