@@ -1,6 +1,7 @@
 package com.example.calibre_zenith.ui.viewmodel
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,6 +25,9 @@ class PauseViewModel : ViewModel() {
     var sessionMeaning by mutableStateOf("")
     var isFromScheduledTask by mutableStateOf(false)
     var secondsLeft by mutableStateOf(0)
+
+    // --- DIAGNOSTICS CHANNEL ---
+    var geminiErrorMessage by mutableStateOf<String?>(null)
 
     // Baseline fallback pool for affirmations
     var affirmations by mutableStateOf<List<String>>(
@@ -51,7 +55,7 @@ class PauseViewModel : ViewModel() {
     val sessionDurationSeconds: StateFlow<Int> = _sessionDurationSeconds.asStateFlow()
     val directivesState: StateFlow<List<String>> = _directivesState.asStateFlow()
 
-    // --- NAVIGATION FUNCTIONS (Required by Dashboard/Screens) ---
+    // --- NAVIGATION FUNCTIONS ---
     fun navigateToDashboard() { currentScreen = "Dashboard" }
     fun navigateToPlanner() { currentScreen = "Planner" }
     fun navigateToTimerScreen() { currentScreen = "Timer" }
@@ -64,10 +68,11 @@ class PauseViewModel : ViewModel() {
         sessionResistanceProfile = ""
         sessionMeaning = ""
         secondsLeft = 0
+        geminiErrorMessage = null
         currentScreen = "Dashboard"
     }
 
-    // --- SESSION LOADERS (Required by MainActivity) ---
+    // --- SESSION LOADERS ---
     fun loadCognitiveSession(
         title: String,
         launchTrigger: String,
@@ -90,6 +95,7 @@ class PauseViewModel : ViewModel() {
         sessionResistanceProfile = ""
         sessionMeaning = ""
         isFromScheduledTask = false
+        geminiErrorMessage = null
         currentScreen = "Timer"
     }
 
@@ -101,6 +107,7 @@ class PauseViewModel : ViewModel() {
         meaning: String,
         durationMinutes: Int
     ) {
+        Log.d("GEMINI_DIAGNOSTIC", "🚀 launchTileEngine triggered manually from UI.")
         sessionTitle = title
         sessionLaunchTrigger = trigger
         sessionResistanceProfile = resistance
@@ -115,18 +122,25 @@ class PauseViewModel : ViewModel() {
 
         viewModelScope.launch {
             isGeminiOptimizing = true
+            geminiErrorMessage = null
             try {
+                // Note: Ensure your GeminiRepository.fetchReframedDirectives is updated
+                // to include a 'hook: String' parameter to match this call.
                 val processedResult = geminiRepository.fetchReframedDirectives(
                     taskName = title,
                     microStep = trigger,
-                    monster = resistance
+                    monster = resistance,
+                    hook = meaning
                 )
                 sessionLaunchTrigger = processedResult.deconstructedStep
                 _microStep.value = processedResult.deconstructedStep
                 affirmations = processedResult.affirmations
                 _directivesState.value = processedResult.affirmations
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("GEMINI_DIAGNOSTIC", "💥 Exception caught in launchTileEngine", e)
+                geminiErrorMessage = e.localizedMessage
+                affirmations = geminiRepository.getDefaultFallbackAffirmations()
+                _directivesState.value = affirmations
             } finally {
                 isGeminiOptimizing = false
             }
@@ -138,28 +152,36 @@ class PauseViewModel : ViewModel() {
         if (secondsLeft > 0) secondsLeft--
     }
 
-    // --- STATE DISPATCHERS (Required by PreFlightScreen) ---
+    // --- STATE DISPATCHERS ---
     fun updateTaskName(value: String) { _taskName.value = value }
     fun updateMicroStep(value: String) { _microStep.value = value }
     fun updateSelectedMonster(value: String) { _selectedMonster.value = value }
     fun updateSelectedHook(value: String) { _selectedHook.value = value }
     fun updateSessionDurationSeconds(seconds: Int) { _sessionDurationSeconds.value = seconds }
 
-    // --- WORKFLOW ENGINE (Required by PreFlightScreen) ---
+    // --- WORKFLOW ENGINE ---
     suspend fun launchCognitiveSessionWorkflow(context: Context) {
+        Log.d("GEMINI_DIAGNOSTIC", "🚀 launchCognitiveSessionWorkflow triggered from PreFlight screen.")
         isGeminiOptimizing = true
+        geminiErrorMessage = null
         try {
+            // Note: Ensure your GeminiRepository.fetchReframedDirectives is updated
+            // to include a 'hook: String' parameter to match this call.
             val processedResult = geminiRepository.fetchReframedDirectives(
                 taskName = _taskName.value,
                 microStep = _microStep.value,
-                monster = _selectedMonster.value
+                monster = _selectedMonster.value,
+                hook = _selectedHook.value
             )
             sessionLaunchTrigger = processedResult.deconstructedStep
             _microStep.value = processedResult.deconstructedStep
             affirmations = processedResult.affirmations
             _directivesState.value = processedResult.affirmations
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("GEMINI_DIAGNOSTIC", "💥 Exception caught in launchCognitiveSessionWorkflow", e)
+            geminiErrorMessage = e.localizedMessage
+            affirmations = geminiRepository.getDefaultFallbackAffirmations()
+            _directivesState.value = affirmations
             throw e
         } finally {
             isGeminiOptimizing = false

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,7 +25,6 @@ import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 fun DashboardScreen(viewModel: PauseViewModel) {
     val haptic = LocalHapticFeedback.current
 
-    // Centering alignments applied to structural grid to fix the wonky positioning
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -33,7 +33,6 @@ fun DashboardScreen(viewModel: PauseViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
-        // Unified Application Branding Header
         Text(
             text = "CALIBRE ZENITH",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
@@ -54,7 +53,7 @@ fun DashboardScreen(viewModel: PauseViewModel) {
         Button(
             onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.navigateToPlanner() // FIXED: Corrected destination method pointer
+                viewModel.navigateToPlanner()
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -79,6 +78,23 @@ fun DashboardScreen(viewModel: PauseViewModel) {
         ) {
             Text(
                 text = "Start Independent Cognitive Timer",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.currentScreen = "Roadmap"
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text(
+                text = "View Tactical Roadmap",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
             )
         }

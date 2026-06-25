@@ -11,6 +11,8 @@ import com.example.calibre_zenith.ui.theme.screens.PlannerScreen
 import com.example.calibre_zenith.ui.theme.screens.CognitiveTimerScreen
 import com.example.calibre_zenith.ui.theme.screens.DashboardScreen
 import com.example.calibre_zenith.ui.theme.screens.PauseScreen
+import com.example.calibre_zenith.ui.theme.screens.GeneratingScreen
+import com.example.calibre_zenith.ui.theme.screens.RoadmapScreen // Added Roadmap import
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 
 class MainActivity : ComponentActivity() {
@@ -24,8 +26,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CalibreZenithTheme {
-                // currentScreen is a plain Compose-tracked String (mutableStateOf inside the
-                // ViewModel) - it's already observable on direct read, no collectAsState() needed.
+                // Observable Compose State Routing
                 val currentScreen = viewModel.currentScreen
 
                 when (currentScreen) {
@@ -34,6 +35,8 @@ class MainActivity : ComponentActivity() {
                     "PreFlight" -> PreFlightScreen(viewModel = viewModel)
                     "Pause" -> PauseScreen(viewModel = viewModel)
                     "Timer" -> CognitiveTimerScreen(viewModel = viewModel)
+                    "Generating" -> GeneratingScreen()
+                    "Roadmap" -> RoadmapScreen() // Added Roadmap route
                 }
             }
         }

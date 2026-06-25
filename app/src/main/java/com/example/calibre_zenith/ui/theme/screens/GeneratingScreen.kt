@@ -1,8 +1,5 @@
 package com.example.calibre_zenith.ui.theme.screens
 
-// Resolves the 'Unresolved reference PauseViewModel' issue
-
-// Resolves 'Property delegate must have a getValue method' for collectAsState()
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,15 +24,33 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun GeneratingScreen() {
     Column(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp, modifier = Modifier.size(72.dp))
-            Box(modifier = Modifier.size(12.dp).background(MaterialTheme.colorScheme.primary, shape = CircleShape))
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(72.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .background(MaterialTheme.colorScheme.primary, shape = CircleShape)
+            )
         }
         Spacer(modifier = Modifier.height(32.dp))
-        Text("DECONSTRUCTING COGNITIVE WALLS", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.5.sp, textAlign = TextAlign.Center)
+        Text(
+            text = "DECONSTRUCTING COGNITIVE WALLS",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.5.sp,
+            textAlign = TextAlign.Center
+        )
     }
 }

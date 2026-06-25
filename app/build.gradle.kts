@@ -7,11 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.calibre_zenith"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 36 // Correct compileSdk target structure
 
     defaultConfig {
         applicationId = "com.example.calibre_zenith"
@@ -28,7 +24,9 @@ android {
         val properties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
-            properties.load(localPropertiesFile.inputStream())
+            localPropertiesFile.inputStream().use { stream ->
+                properties.load(stream)
+            }
         }
 
         // Read the key. If it doesn't exist, fallback to an empty string wrapper
@@ -41,19 +39,34 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = false // Standardized DSL property for minification/obfuscation
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     buildFeatures {
         compose = true
         // Enforces Android Studio to auto-generate the BuildConfig class file
         buildConfig = true
+    }
+}
+
+// =================================================================
+// MODERN KOTLIN COMPILER OPTIONS:
+// Migrated from deprecated kotlinOptions to type-safe compilerOptions.
+// Bypasses the Kotlin DSL warning in modern Kotlin Gradle plugins.
+// =================================================================
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
@@ -69,6 +82,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.compose.material:material-icons-extended")
 
     // THE GEMINI AI ENGINE INTEGRATION
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
