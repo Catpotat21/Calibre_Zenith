@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
                     "Pause" -> PauseScreen(viewModel = viewModel)
                     "Timer" -> CognitiveTimerScreen(viewModel = viewModel)
                     "Generating" -> GeneratingScreen()
-                    "Roadmap" -> RoadmapScreen() // Added Roadmap route
+                    "Roadmap" -> RoadmapScreen(viewModel = viewModel) // FIXED: Passing viewModel
                 }
             }
         }

@@ -1,8 +1,5 @@
 package com.example.calibre_zenith.ui.theme.screens
 
-// Resolves the 'Unresolved reference PauseViewModel' issue
-
-// Resolves 'Property delegate must have a getValue method' for collectAsState()
 import android.app.TimePickerDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -36,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +53,9 @@ import androidx.compose.ui.unit.sp
 import com.example.calibre_zenith.notification.TaskAlarmScheduler
 import com.example.calibre_zenith.ui.theme.SurfacePressed
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.util.Calendar
 import java.util.Locale
 
@@ -71,6 +72,50 @@ data class DynamicPlannerTask(
     val endMinute: Int,
     val isHighFriction: Boolean = false
 )
+
+// Helper parser to turn JSON dates (YYYY-MM-DD) and times (HH:MM) into Calendar values
+fun parseDateAndTimeToTask(
+    id: String,
+    title: String,
+    details: String,
+    scheduledDate: String,
+    scheduledTime: String,
+    isCompleted: Boolean
+): DynamicPlannerTask? {
+    return try {
+        val dateParts = scheduledDate.split("-")
+        if (dateParts.size != 3) return null
+        val year = dateParts[0].toInt()
+        val month = dateParts[1].toInt() - 1 // Calendar months are 0-based
+        val day = dateParts[2].toInt()
+
+        val timeParts = scheduledTime.split(":")
+        val startHour = if (timeParts.size >= 2) timeParts[0].toIntOrNull() ?: 9 else 9
+        val startMinute = if (timeParts.size >= 2) timeParts[1].toIntOrNull() ?: 0 else 0
+
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month)
+            set(Calendar.DAY_OF_MONTH, day)
+        }
+
+        DynamicPlannerTask(
+            id = id,
+            title = title,
+            microStep = if (details.isNotBlank()) details else "Commence Execution",
+            frictionNotes = if (isCompleted) "Completed on Roadmap" else "Synced from Roadmap Path",
+            dayOfYear = cal.get(Calendar.DAY_OF_YEAR),
+            year = year,
+            startHour = startHour,
+            startMinute = startMinute,
+            endHour = (startHour + 1).coerceIn(0, 23),
+            endMinute = startMinute,
+            isHighFriction = false
+        )
+    } catch (e: Exception) {
+        null
+    }
+}
 
 @Composable
 fun PlannerScreen(viewModel: PauseViewModel) {
@@ -131,6 +176,47 @@ fun PlannerScreen(viewModel: PauseViewModel) {
         )
     }
 
+    // --- SHARED PERSISTENCE LOAD CYCLE ---
+    LaunchedEffect(Unit) {
+        val file = File(androidContext.filesDir, "planner_scheduled_tasks.json")
+        if (file.exists()) {
+            try {
+                val content = file.readText()
+                if (content.isNotBlank()) {
+                    val jsonArray = JSONArray(content)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val id = obj.getString("id")
+                        val title = obj.getString("title")
+                        val details = obj.optString("details", "")
+                        val scheduledDate = obj.optString("scheduledDate", "")
+                        val scheduledTime = obj.optString("scheduledTime", "")
+                        val isCompleted = obj.optBoolean("isCompleted", false)
+
+                        if (scheduledDate.isNotBlank()) {
+                            val syncedTask = parseDateAndTimeToTask(
+                                id = id,
+                                title = title,
+                                details = details,
+                                scheduledDate = scheduledDate,
+                                scheduledTime = scheduledTime,
+                                isCompleted = isCompleted
+                            )
+                            if (syncedTask != null) {
+                                // Prevent double load duplication on startup
+                                if (tasksList.none { it.id == syncedTask.id }) {
+                                    tasksList.add(syncedTask)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     val activeDayTasks = tasksList.filter { it.dayOfYear == selectedDayOfYear && it.year == selectedYear }
 
     // Helper utility to expose the native structural clock wheel dial
@@ -151,7 +237,7 @@ fun PlannerScreen(viewModel: PauseViewModel) {
                 .background(MaterialTheme.colorScheme.background)
         ) {
 
-            // --- HEADER CONTROL REGION ---
+            // --- HEADER CONTROL REGION WITH SEAMLESS NAVIGATION TO MENU ---
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -159,21 +245,29 @@ fun PlannerScreen(viewModel: PauseViewModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "MISSION RUNWAY",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "SPATIAL TIME CANVAS",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 9.sp,
-                        letterSpacing = 2.sp
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { triggerHaptic(); viewModel.navigateToDashboard() },
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text("<", color = MaterialTheme.colorScheme.primary, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                    Column {
+                        Text(
+                            text = "MISSION RUNWAY",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "SPATIAL TIME CANVAS",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            letterSpacing = 2.sp
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
