@@ -24,6 +24,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.calibre_zenith.data.RoadmapPersistence
+import com.example.calibre_zenith.data.TaskNode
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 import kotlinx.coroutines.delay
 import org.json.JSONArray
@@ -40,149 +42,8 @@ private val LuxDarkBg = Color(0xFF050507)
 private val LuxSurface = Color(0xFF141419)
 
 // =================================================================
-// 🏷️ EXTENDED DATA MODEL WITH SCHEDULING & CUSTOM FLAIRS
+// 🖥️ MAIN ROADMAP SCREEN WITH BREADCRUMB TRANSITIONS
 // =================================================================
-class TaskNode(
-    val id: String = UUID.randomUUID().toString(),
-    initialTitle: String,
-    initialDetails: String = "",
-    initialIsCompleted: Boolean = false,
-    initialScheduledDate: String? = null,
-    initialScheduledTime: String? = null,
-    initialScheduledEndTime: String? = null,
-    initialFlairs: List<String> = emptyList()
-) {
-    var title by mutableStateOf(initialTitle)
-    var details by mutableStateOf(initialDetails)
-    var isCompleted by mutableStateOf(initialIsCompleted)
-    var scheduledDate by mutableStateOf(initialScheduledDate)
-    var scheduledTime by mutableStateOf(initialScheduledTime)
-    var scheduledEndTime by mutableStateOf(initialScheduledEndTime)
-    val flairs = mutableStateListOf<String>().apply { addAll(initialFlairs) }
-    val children = mutableStateListOf<TaskNode>()
-}
-
-// =================================================================
-// 💾 ROBUST LOCAL JSON PERSISTENCE & PLANNER INTERFACE ENGINE
-// =================================================================
-object RoadmapPersistence {
-
-    private fun nodeToJson(node: TaskNode): JSONObject {
-        val json = JSONObject()
-        json.put("id", node.id)
-        json.put("title", node.title)
-        json.put("details", node.details)
-        json.put("isCompleted", node.isCompleted)
-        json.put("scheduledDate", node.scheduledDate ?: JSONObject.NULL)
-        json.put("scheduledTime", node.scheduledTime ?: JSONObject.NULL)
-        json.put("scheduledEndTime", node.scheduledEndTime ?: JSONObject.NULL)
-
-        val flairsArray = JSONArray()
-        node.flairs.forEach { flairsArray.put(it) }
-        json.put("flairs", flairsArray)
-
-        val childrenArray = JSONArray()
-        node.children.forEach { childrenArray.put(nodeToJson(it)) }
-        json.put("children", childrenArray)
-        return json
-    }
-
-    private fun jsonToNode(json: JSONObject): TaskNode {
-        val id = json.optString("id", UUID.randomUUID().toString())
-        val title = json.optString("title", "")
-        val details = json.optString("details", "")
-        val isCompleted = json.optBoolean("isCompleted", false)
-        val scheduledDate = if (json.isNull("scheduledDate")) null else json.optString("scheduledDate")
-        val scheduledTime = if (json.isNull("scheduledTime")) null else json.optString("scheduledTime")
-        val scheduledEndTime = if (json.isNull("scheduledEndTime")) null else json.optString("scheduledEndTime")
-
-        val flairsList = mutableListOf<String>()
-        val flairsArray = json.optJSONArray("flairs")
-        if (flairsArray != null) {
-            for (i in 0 until flairsArray.length()) {
-                flairsList.add(flairsArray.getString(i))
-            }
-        }
-
-        val node = TaskNode(
-            id = id,
-            initialTitle = title,
-            initialDetails = details,
-            initialIsCompleted = isCompleted,
-            initialScheduledDate = scheduledDate,
-            initialScheduledTime = scheduledTime,
-            initialScheduledEndTime = scheduledEndTime,
-            initialFlairs = flairsList
-        )
-
-        val childrenArray = json.optJSONArray("children")
-        if (childrenArray != null) {
-            for (i in 0 until childrenArray.length()) {
-                node.children.add(jsonToNode(childrenArray.getJSONObject(i)))
-            }
-        }
-        return node
-    }
-
-    private fun recursiveExtractScheduled(node: TaskNode, list: MutableList<TaskNode>) {
-        if (!node.scheduledDate.isNullOrBlank()) {
-            list.add(node)
-        }
-        node.children.forEach { recursiveExtractScheduled(it, list) }
-    }
-
-    fun saveRoadmap(context: Context, nodes: List<TaskNode>) {
-        try {
-            // 1. Save Full Tree structure for Roadmap
-            val file = File(context.filesDir, "roadmap_data.json")
-            val rootArray = JSONArray()
-            nodes.forEach { rootArray.put(nodeToJson(it)) }
-            file.writeText(rootArray.toString())
-
-            // 2. Extract & Flatten Scheduled Items directly to the Planner sync file
-            val scheduledList = mutableListOf<TaskNode>()
-            nodes.forEach { recursiveExtractScheduled(it, scheduledList) }
-
-            val plannerFile = File(context.filesDir, "planner_scheduled_tasks.json")
-            val plannerArray = JSONArray()
-            for (task in scheduledList) {
-                val obj = JSONObject()
-                obj.put("id", task.id)
-                obj.put("title", task.title)
-                obj.put("details", task.details)
-                obj.put("scheduledDate", task.scheduledDate)
-                obj.put("scheduledTime", task.scheduledTime ?: "")
-                obj.put("scheduledEndTime", task.scheduledEndTime ?: "")
-                obj.put("isCompleted", task.isCompleted)
-                plannerArray.put(obj)
-            }
-            plannerFile.writeText(plannerArray.toString())
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    fun loadRoadmap(context: Context): List<TaskNode> {
-        val nodes = mutableListOf<TaskNode>()
-        try {
-            val file = File(context.filesDir, "roadmap_data.json")
-            if (file.exists()) {
-                val content = file.readText()
-                if (content.isNotBlank()) {
-                    val rootArray = JSONArray(content)
-                    for (i in 0 until rootArray.length()) {
-                        nodes.add(jsonToNode(rootArray.getJSONObject(i)))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return nodes
-    }
-}
-
-// Generates dynamic, elegant highlight colors based on flair name
 fun getFlairColor(flair: String): Color {
     val hash = flair.hashCode().coerceAtLeast(0)
     val colors = listOf(
@@ -201,23 +62,12 @@ fun getFlairColor(flair: String): Color {
 @Composable
 fun RoadmapScreen(viewModel: PauseViewModel) {
     val context = LocalContext.current
-    val rootNodes = remember { mutableStateListOf<TaskNode>() }
+    val rootNodes = viewModel.roadmapNodes
     var navigationStack by remember { mutableStateOf(listOf<TaskNode>()) }
-    var saveTrigger by remember { mutableStateOf(0) }
 
     // Load persisted data on initialization
     LaunchedEffect(Unit) {
-        val loaded = RoadmapPersistence.loadRoadmap(context)
-        rootNodes.clear()
-        rootNodes.addAll(loaded)
-    }
-
-    // Debounced Autosave Flow to prevent excessive file system access while typing
-    LaunchedEffect(saveTrigger) {
-        if (saveTrigger > 0) {
-            delay(800)
-            RoadmapPersistence.saveRoadmap(context, rootNodes)
-        }
+        viewModel.initializeRoadmap(context)
     }
 
     val currentView = navigationStack.lastOrNull()
@@ -234,8 +84,8 @@ fun RoadmapScreen(viewModel: PauseViewModel) {
             MainDashboard(
                 viewModel = viewModel,
                 nodes = rootNodes,
-                onAdd = { rootNodes.add(TaskNode(initialTitle = it)); saveTrigger++ },
-                onDelete = { rootNodes.remove(it); saveTrigger++ },
+                onAdd = { rootNodes.add(TaskNode(initialTitle = it)); viewModel.triggerRoadmapSave(context) },
+                onDelete = { rootNodes.remove(it); viewModel.triggerRoadmapSave(context) },
                 onNavigate = { navigationStack = navigationStack + it }
             )
         } else {
@@ -247,8 +97,8 @@ fun RoadmapScreen(viewModel: PauseViewModel) {
                     viewModel.navigateToTimerScreen()
                 },
                 onNavigate = { childNode -> navigationStack = navigationStack + childNode },
-                onDelete = { childNode -> view.children.remove(childNode); saveTrigger++ },
-                onSaveTrigger = { saveTrigger++ }
+                onDelete = { childNode -> view.children.remove(childNode); viewModel.triggerRoadmapSave(context) },
+                onSaveTrigger = { viewModel.triggerRoadmapSave(context) }
             )
         }
     }

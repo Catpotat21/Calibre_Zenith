@@ -1,44 +1,19 @@
 package com.example.calibre_zenith.ui.theme.screens
 
+import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,14 +26,59 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.calibre_zenith.notification.TaskAlarmScheduler
-import com.example.calibre_zenith.ui.theme.SurfacePressed
+import com.example.calibre_zenith.data.RoadmapPersistence
+import com.example.calibre_zenith.data.TaskNode
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
+import kotlinx.coroutines.delay
 import java.util.Calendar
 import java.util.Locale
 
+// =================================================================
+// 🎨 LUXURY PALETTE (REDEFINED FOR COHESION)
+// =================================================================
+private val LuxAccentGold = Color(0xFFD4AF37)
+private val LuxDarkBg = Color(0xFF050507)
+private val LuxSurface = Color(0xFF141419)
+
+// Helper to convert TaskNode into DynamicPlannerTask for the legacy Alarm Scheduler
+fun TaskNode.toDynamicTask(): DynamicPlannerTask? {
+    val date = scheduledDate ?: return null
+    val time = scheduledTime ?: return null
+    val endTime = scheduledEndTime ?: ""
+
+    return try {
+        val dateParts = date.split("-")
+        val timeParts = time.split(":")
+        val endTimeParts = endTime.split(":")
+
+        val cal = Calendar.getInstance().apply {
+            set(dateParts[0].toInt(), dateParts[1].toInt() - 1, dateParts[2].toInt())
+        }
+
+        val sH = timeParts[0].toInt()
+        val sM = timeParts[1].toInt()
+        val eH = if (endTimeParts.size >= 2) endTimeParts[0].toInt() else (sH + 1).coerceIn(0, 23)
+        val eM = if (endTimeParts.size >= 2) endTimeParts[1].toInt() else sM
+
+        DynamicPlannerTask(
+            id = id,
+            title = title,
+            microStep = if (details.isNotBlank()) details else "Commence Execution",
+            frictionNotes = "Synced from Roadmap",
+            dayOfYear = cal.get(Calendar.DAY_OF_YEAR),
+            year = cal.get(Calendar.YEAR),
+            startHour = sH,
+            startMinute = sM,
+            endHour = eH,
+            endMinute = eM,
+            isHighFriction = false
+        )
+    } catch (e: Exception) {
+        null
+    }
+}
+
+// Legacy Data Class to keep the Alarm Scheduler compatible without breaking dependencies
 data class DynamicPlannerTask(
     val id: String,
     val title: String,
@@ -73,681 +93,325 @@ data class DynamicPlannerTask(
     val isHighFriction: Boolean = false
 )
 
-// Helper parser to turn JSON dates (YYYY-MM-DD) and times (HH:MM) into Calendar values
-fun parseDateAndTimeToTask(
-    id: String,
-    title: String,
-    details: String,
-    scheduledDate: String,
-    scheduledTime: String,
-    isCompleted: Boolean
-): DynamicPlannerTask? {
-    return try {
-        val dateParts = scheduledDate.split("-")
-        if (dateParts.size != 3) return null
-        val year = dateParts[0].toInt()
-        val month = dateParts[1].toInt() - 1 // Calendar months are 0-based
-        val day = dateParts[2].toInt()
+@Composable
+fun PlannerScreen(viewModel: PauseViewModel) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val triggerHaptic = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
 
-        val timeParts = scheduledTime.split(":")
-        val startHour = if (timeParts.size >= 2) timeParts[0].toIntOrNull() ?: 9 else 9
-        val startMinute = if (timeParts.size >= 2) timeParts[1].toIntOrNull() ?: 0 else 0
+    val roadmapNodes = viewModel.roadmapNodes
+    var navigationStack by remember { mutableStateOf(listOf<TaskNode>()) }
 
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month)
-            set(Calendar.DAY_OF_MONTH, day)
+    // Calendar & Timeline Scopes
+    val baseCalendar = remember { Calendar.getInstance() }
+    var selectedDayOfYear by remember { mutableIntStateOf(baseCalendar.get(Calendar.DAY_OF_YEAR)) }
+    var selectedYear by remember { mutableIntStateOf(baseCalendar.get(Calendar.YEAR)) }
+
+    // Load persisted Roadmap data into shared ViewModel state if not already done
+    LaunchedEffect(Unit) {
+        viewModel.initializeRoadmap(context)
+    }
+
+    val currentView = navigationStack.lastOrNull()
+
+    AnimatedContent(
+        targetState = currentView,
+        transitionSpec = {
+            if (targetState != null) slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+            else slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+        },
+        label = "PlannerTransition"
+    ) { viewNode ->
+        if (viewNode == null) {
+            TimelineDashboard(
+                viewModel = viewModel,
+                nodes = roadmapNodes,
+                selectedDayOfYear = selectedDayOfYear,
+                selectedYear = selectedYear,
+                onDaySelected = { d, y -> selectedDayOfYear = d; selectedYear = y },
+                onNavigate = { navigationStack = navigationStack + it },
+                onDelete = { node -> roadmapNodes.remove(node); viewModel.triggerRoadmapSave(context) },
+                onAdd = { title, date, start, end ->
+                    val newNode = TaskNode(
+                        initialTitle = title,
+                        initialScheduledDate = date,
+                        initialScheduledTime = start,
+                        initialScheduledEndTime = end
+                    )
+                    roadmapNodes.add(newNode)
+                    viewModel.triggerRoadmapSave(context)
+                    // Also schedule alarm
+                    newNode.toDynamicTask()?.let { TaskAlarmScheduler(context).scheduleTaskAlerts(it) }
+                }
+            )
+        } else {
+            TaskDetailPage(
+                node = viewNode,
+                onBack = { navigationStack = navigationStack.dropLast(1) },
+                onLaunchTimer = {
+                    viewModel.loadCognitiveSession(viewNode.title, "Executing: ${viewNode.title}", "Level: Focus", true)
+                    viewModel.navigateToTimerScreen()
+                },
+                onNavigate = { childNode -> navigationStack = navigationStack + childNode },
+                onDelete = { childNode -> viewNode.children.remove(childNode); viewModel.triggerRoadmapSave(context) },
+                onSaveTrigger = { viewModel.triggerRoadmapSave(context) }
+            )
         }
-
-        DynamicPlannerTask(
-            id = id,
-            title = title,
-            microStep = if (details.isNotBlank()) details else "Commence Execution",
-            frictionNotes = if (isCompleted) "Completed on Roadmap" else "Synced from Roadmap Path",
-            dayOfYear = cal.get(Calendar.DAY_OF_YEAR),
-            year = year,
-            startHour = startHour,
-            startMinute = startMinute,
-            endHour = (startHour + 1).coerceIn(0, 23),
-            endMinute = startMinute,
-            isHighFriction = false
-        )
-    } catch (e: Exception) {
-        null
     }
 }
 
 @Composable
-fun PlannerScreen(viewModel: PauseViewModel) {
-    val androidContext = LocalContext.current
-    val systemHaptic = LocalHapticFeedback.current
-    val triggerHaptic = { systemHaptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+fun TimelineDashboard(
+    viewModel: PauseViewModel,
+    nodes: List<TaskNode>,
+    selectedDayOfYear: Int,
+    selectedYear: Int,
+    onDaySelected: (Int, Int) -> Unit,
+    onNavigate: (TaskNode) -> Unit,
+    onDelete: (TaskNode) -> Unit,
+    onAdd: (String, String, String, String) -> Unit
+) {
+    val context = LocalContext.current
+    var showCreator by remember { mutableStateOf(false) }
 
-    // Core Background Scheduler Engine
-    val alarmScheduler = remember { TaskAlarmScheduler(androidContext) }
-
-    // Calendar & Timeline Scopes
-    val baseCalendarInstance = remember { Calendar.getInstance() }
-    var selectedDayOfYear by remember { mutableStateOf(baseCalendarInstance.get(Calendar.DAY_OF_YEAR)) }
-    var selectedYear by remember { mutableStateOf(baseCalendarInstance.get(Calendar.YEAR)) }
-
-    var showMonthDialog by remember { mutableStateOf(false) }
-    var monthViewOffset by remember { mutableStateOf(0) }
-    var showCreatorSheet by remember { mutableStateOf(false) }
-
-    // Creator Form States
-    var taskTitle by remember { mutableStateOf("") }
-    var taskMicroTrigger by remember { mutableStateOf("") }
-    var taskFrictionByPass by remember { mutableStateOf("") }
-    var startHourInt by remember { mutableStateOf(9) }
-    var startMinuteInt by remember { mutableStateOf(0) }
-    var endHourInt by remember { mutableStateOf(10) }
-    var endMinuteInt by remember { mutableStateOf(0) }
-    var highFrictionSelected by remember { mutableStateOf(false) }
-
-    // Calculate a perfect 7-Day Horizontal Window pinned from current selection profile
-    val incomingDays = remember(selectedDayOfYear, selectedYear) {
-        (0..6).map { offset ->
-            val cal = Calendar.getInstance()
-            cal.set(Calendar.YEAR, selectedYear)
-            cal.set(Calendar.DAY_OF_YEAR, selectedDayOfYear)
-            cal.add(Calendar.DAY_OF_YEAR, offset)
-            cal
+    // Flat list of scheduled nodes for the timeline (Observe SnapshotStateList changes)
+    val allScheduled by remember {
+        derivedStateOf {
+            val list = mutableListOf<TaskNode>()
+            fun extract(n: TaskNode) {
+                if (!n.scheduledDate.isNullOrBlank()) list.add(n)
+                n.children.forEach { extract(it) }
+            }
+            nodes.forEach { extract(it) }
+            list
         }
     }
 
-    // Global Interactive Task List Memory Storage
-    val tasksList = remember {
-        mutableStateListOf(
-            DynamicPlannerTask(
-                "1", "Setup Organ Perfusion Data Pipeline",
-                "Open terminal and execute 'git checkout -b parsing-engine'",
-                "Unorganized data formats in raw log file streams",
-                Calendar.getInstance().get(Calendar.DAY_OF_YEAR),
-                Calendar.getInstance().get(Calendar.YEAR), 9, 30, 11, 0, false
-            ),
-            DynamicPlannerTask(
-                "2", "Deconstruct Expression Script Errors",
-                "Load Seurat cluster matrix objects into variable 'ds_raw'",
-                "Script environment version conflicts and missing cluster indexes",
-                Calendar.getInstance().get(Calendar.DAY_OF_YEAR),
-                Calendar.getInstance().get(Calendar.YEAR), 14, 0, 15, 45, true
-            )
-        )
-    }
-
-    // --- SHARED PERSISTENCE LOAD CYCLE ---
-    LaunchedEffect(Unit) {
-        val file = File(androidContext.filesDir, "planner_scheduled_tasks.json")
-        if (file.exists()) {
-            try {
-                val content = file.readText()
-                if (content.isNotBlank()) {
-                    val jsonArray = JSONArray(content)
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val id = obj.getString("id")
-                        val title = obj.getString("title")
-                        val details = obj.optString("details", "")
-                        val scheduledDate = obj.optString("scheduledDate", "")
-                        val scheduledTime = obj.optString("scheduledTime", "")
-                        val isCompleted = obj.optBoolean("isCompleted", false)
-
-                        if (scheduledDate.isNotBlank()) {
-                            val syncedTask = parseDateAndTimeToTask(
-                                id = id,
-                                title = title,
-                                details = details,
-                                scheduledDate = scheduledDate,
-                                scheduledTime = scheduledTime,
-                                isCompleted = isCompleted
-                            )
-                            if (syncedTask != null) {
-                                // Prevent double load duplication on startup
-                                if (tasksList.none { it.id == syncedTask.id }) {
-                                    tasksList.add(syncedTask)
-                                }
-                            }
-                        }
-                    }
+    val activeDayNodes by remember(selectedDayOfYear, selectedYear) {
+        derivedStateOf {
+            allScheduled.filter { node ->
+                val dateParts = node.scheduledDate?.split("-") ?: return@filter false
+                if (dateParts.size != 3) return@filter false
+                val cal = Calendar.getInstance().apply {
+                    set(dateParts[0].toInt(), dateParts[1].toInt() - 1, dateParts[2].toInt())
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                cal.get(Calendar.DAY_OF_YEAR) == selectedDayOfYear && cal.get(Calendar.YEAR) == selectedYear
             }
         }
     }
 
-    val activeDayTasks = tasksList.filter { it.dayOfYear == selectedDayOfYear && it.year == selectedYear }
-
-    // Helper utility to expose the native structural clock wheel dial
-    val launchClockDialPicker = { initialHour: Int, initialMinute: Int, onSelected: (Int, Int) -> Unit ->
-        TimePickerDialog(
-            androidContext,
-            { _, pickedHour, pickedMinute -> onSelected(pickedHour, pickedMinute) },
-            initialHour,
-            initialMinute,
-            false
-        ).show()
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+    Column(modifier = Modifier.fillMaxSize().background(LuxDarkBg)) {
+        // --- HEADER ---
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 56.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Column {
+                Text("MISSION RUNWAY", color = LuxAccentGold, fontSize = 20.sp, letterSpacing = 4.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Text("SPATIAL TIME CANVAS", color = Color.Gray, fontSize = 9.sp, letterSpacing = 2.sp, fontFamily = FontFamily.Monospace)
+            }
+            Row {
+                IconButton(onClick = { showCreator = true }) {
+                    Icon(Icons.Default.Add, "Add Task", tint = LuxAccentGold)
+                }
+                IconButton(onClick = { viewModel.navigateToDashboard() }) {
+                    Icon(Icons.Default.Home, "Dashboard", tint = LuxAccentGold)
+                }
+            }
+        }
 
-            // --- HEADER CONTROL REGION WITH SEAMLESS NAVIGATION TO MENU ---
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { triggerHaptic(); viewModel.navigateToDashboard() },
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text("<", color = MaterialTheme.colorScheme.primary, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    }
-                    Column {
+        // --- 7-DAY ROW ---
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            (0..6).forEach { offset ->
+                val cal = Calendar.getInstance()
+                cal.add(Calendar.DAY_OF_YEAR, offset)
+                val isSelected = cal.get(Calendar.DAY_OF_YEAR) == selectedDayOfYear && cal.get(Calendar.YEAR) == selectedYear
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(if (isSelected) LuxAccentGold else LuxSurface, RoundedCornerShape(12.dp))
+                        .clickable { onDaySelected(cal.get(Calendar.DAY_OF_YEAR), cal.get(Calendar.YEAR)) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "MISSION RUNWAY",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 20.sp,
+                            text = cal.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT, Locale.US).uppercase(),
+                            color = if (isSelected) Color.Black else Color.Gray,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = cal.get(Calendar.DAY_OF_MONTH).toString(),
+                            color = if (isSelected) Color.Black else Color.White,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+        }
+
+        // --- TIMELINE ---
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
+            Column {
+                for (hour in 0..23) {
+                    Row(modifier = Modifier.fillMaxWidth().height(90.dp)) {
                         Text(
-                            text = "SPATIAL TIME CANVAS",
-                            color = MaterialTheme.colorScheme.primary,
+                            text = String.format(Locale.US, "%02d:00", hour),
+                            color = Color.DarkGray,
+                            fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
-                            letterSpacing = 2.sp
+                            modifier = Modifier.width(50.dp).padding(top = 4.dp)
                         )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
-                            .border(1.dp, SurfacePressed, RoundedCornerShape(12.dp))
-                            .clickable { triggerHaptic(); monthViewOffset = 0; showMonthDialog = true }
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
-                    ) {
-                        Text("MONTH", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp))
-                            .size(40.dp)
-                            .clickable {
-                                triggerHaptic()
-                                taskTitle = ""
-                                taskMicroTrigger = ""
-                                taskFrictionByPass = ""
-                                startHourInt = 9
-                                startMinuteInt = 0
-                                endHourInt = 10
-                                endMinuteInt = 0
-                                highFrictionSelected = false
-                                showCreatorSheet = true
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("+", color = Color.Black, fontSize = 22.sp, fontWeight = FontWeight.Normal)
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
-                            .border(1.dp, SurfacePressed, RoundedCornerShape(12.dp))
-                            .clickable { triggerHaptic(); viewModel.navigateToDashboard() }
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
-                    ) {
-                        Text("MENU", color = MaterialTheme.colorScheme.secondary, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Box(modifier = Modifier.fillMaxSize().border(0.5.dp, Color.Gray.copy(alpha = 0.1f)))
                     }
                 }
             }
 
-            // --- EVENLY DISTRIBUTED 7-DAY HORIZONTAL WEEK ROW ---
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                incomingDays.forEach { calInstance ->
-                    val isSelected = calInstance.get(Calendar.DAY_OF_YEAR) == selectedDayOfYear &&
-                            calInstance.get(Calendar.YEAR) == selectedYear
+            activeDayNodes.forEach { node ->
+                val startParts = node.scheduledTime?.split(":") ?: return@forEach
+                val endParts = node.scheduledEndTime?.split(":")
+                val sH = startParts[0].toFloat()
+                val sM = startParts[1].toFloat()
+                val eH = if (endParts != null && endParts.size >= 2) endParts[0].toFloat() else sH + 1
+                val eM = if (endParts != null && endParts.size >= 2) endParts[1].toFloat() else sM
 
-                    val dayName = calInstance.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT, Locale.US) ?: ""
-                    val dayNum = calInstance.get(Calendar.DAY_OF_MONTH).toString()
+                val startOffset = (sH + sM / 60f) * 90
+                val height = ((eH + eM / 60f) - (sH + sM / 60f)) * 90
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else SurfacePressed,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable {
-                                triggerHaptic()
-                                selectedDayOfYear = calInstance.get(Calendar.DAY_OF_YEAR)
-                                selectedYear = calInstance.get(Calendar.YEAR)
-                            }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = dayName.uppercase(),
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.secondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = dayNum,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            // --- 24-HOUR SPATIAL TIMELINE INTERACTIVE CANVAS ---
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 24.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Column {
-                    for (hour in 0..23) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(85.dp)
-                                .clickable {
-                                    triggerHaptic()
-                                    taskTitle = ""
-                                    taskMicroTrigger = ""
-                                    taskFrictionByPass = ""
-                                    startHourInt = hour
-                                    startMinuteInt = 0
-                                    endHourInt = (hour + 1).coerceIn(0, 23)
-                                    endMinuteInt = 0
-                                    highFrictionSelected = false
-                                    showCreatorSheet = true
-                                },
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "%02d:00", hour),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                modifier = Modifier
-                                    .width(55.dp)
-                                    .padding(top = 4.dp)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .border(0.5.dp, SurfacePressed.copy(alpha = 0.15f))
-                            )
-                        }
-                    }
-                }
-
-                // Foreground Precision Render Overlay Tasks
-                activeDayTasks.forEach { task ->
-                    val startFloat = task.startHour + (task.startMinute / 60f)
-                    val endFloat = task.endHour + (task.endMinute / 60f)
-
-                    val topOffset = (startFloat * 85).dp
-                    val blockHeight = ((endFloat - startFloat) * 85).dp
-
-                    val accentColor = if (task.isHighFriction) Color(0xFFFF5252) else MaterialTheme.colorScheme.primary
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 55.dp)
-                            .offset(y = topOffset)
-                            .height(blockHeight)
-                            .padding(2.dp)
-                            .background(accentColor.copy(alpha = 0.08f), shape = RoundedCornerShape(8.dp))
-                            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                            .border(width = 4.dp, color = accentColor, shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
-                            .clickable { triggerHaptic() }
-                            .padding(10.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(
-                                    text = task.title,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = String.format(Locale.US, "%02d:%02d - %02d:%02d", task.startHour, task.startMinute, task.endHour, task.endMinute),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 9.sp,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "LAUNCH CORE: ${task.microStep}",
-                                color = MaterialTheme.colorScheme.secondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp,
-                                maxLines = 1
-                            )
-                            if (task.frictionNotes.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "RESISTANCE PROFILE: ${task.frictionNotes}",
-                                    color = Color(0xFFFFCC80),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 9.sp,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- MONTH DIALOG ---
-        if (showMonthDialog) {
-            val workingMonthCal = remember(monthViewOffset) {
-                val cal = Calendar.getInstance()
-                cal.add(Calendar.MONTH, monthViewOffset)
-                cal.set(Calendar.DAY_OF_MONTH, 1)
-                cal
-            }
-
-            val monthLabel = workingMonthCal.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.US) ?: ""
-            val yearLabel = workingMonthCal.get(Calendar.YEAR).toString()
-            val totalDaysInMonth = workingMonthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            val startDayOfWeekAdjustment = workingMonthCal.get(Calendar.DAY_OF_WEEK) - 1
-
-            AlertDialog(
-                onDismissRequest = { showMonthDialog = false },
-                containerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.border(1.dp, SurfacePressed, RoundedCornerShape(24.dp)),
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showMonthDialog = false }) {
-                        Text("CLOSE OVERLAY", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace)
-                    }
-                },
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { triggerHaptic(); monthViewOffset-- }) {
-                            Text("<", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                        Text(text = "${monthLabel.uppercase()} $yearLabel", fontSize = 14.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { triggerHaptic(); monthViewOffset++ }) {
-                            Text(">", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            listOf("S", "M", "T", "W", "T", "F", "S").forEach { abbr ->
-                                Text(abbr, modifier = Modifier.weight(1f), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.secondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        var rawDayCounter = 1
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            for (rowIndex in 0 until 6) {
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    for (columnIndex in 0..6) {
-                                        val cellIndex = (rowIndex * 7) + columnIndex
-                                        if (cellIndex < startDayOfWeekAdjustment || rawDayCounter > totalDaysInMonth) {
-                                            Box(modifier = Modifier.weight(1f))
-                                        } else {
-                                            val capturedDay = rawDayCounter
-                                            val targetCal = Calendar.getInstance().apply {
-                                                add(Calendar.MONTH, monthViewOffset)
-                                                set(Calendar.DAY_OF_MONTH, capturedDay)
-                                            }
-                                            val isMatch = (targetCal.get(Calendar.DAY_OF_YEAR) == selectedDayOfYear && targetCal.get(Calendar.YEAR) == selectedYear)
-
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .aspectRatio(1f)
-                                                    .background(color = if (isMatch) MaterialTheme.colorScheme.primary else Color.Transparent, shape = RoundedCornerShape(8.dp))
-                                                    .clickable {
-                                                        triggerHaptic()
-                                                        selectedDayOfYear = targetCal.get(Calendar.DAY_OF_YEAR)
-                                                        selectedYear = targetCal.get(Calendar.YEAR)
-                                                        showMonthDialog = false
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(text = capturedDay.toString(), color = if (isMatch) Color.Black else MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
-                                            }
-                                            rawDayCounter++
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            )
-        }
-
-        // --- TASK CREATOR SHEET ---
-        AnimatedVisibility(
-            visible = showCreatorSheet,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it })
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .clickable { showCreatorSheet = false },
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                        .border(1.dp, SurfacePressed, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                        .clickable(enabled = false) {}
-                        .padding(24.dp)
-                        .verticalScroll(rememberScrollState())
+                        .padding(start = 50.dp)
+                        .offset(y = startOffset.dp)
+                        .height(height.dp)
+                        .padding(2.dp)
+                        .background(LuxAccentGold.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .border(1.dp, LuxAccentGold.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .border(width = 4.dp, color = LuxAccentGold, shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                        .clickable { onNavigate(node) }
+                        .padding(8.dp)
                 ) {
-                    Text(text = "ARCHITECT RUNWAY OBJECTIVE", color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Monospace, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    OutlinedTextField(
-                        value = taskTitle,
-                        onValueChange = { taskTitle = it },
-                        label = { Text("Objective Blueprint Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = taskMicroTrigger,
-                        onValueChange = { taskMicroTrigger = it },
-                        label = { Text("60-Sec Launch Trigger Matrix") },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Action word start point...") },
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = taskFrictionByPass,
-                        onValueChange = { taskFrictionByPass = it },
-                        label = { Text("Anticipated Cognitive Resistance / Friction Profile") },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Identify why you might avoid this task...") },
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Text("SPATIAL TEMPORAL BOUNDS", color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(MaterialTheme.colorScheme.background, shape = RoundedCornerShape(12.dp))
-                                .border(1.dp, SurfacePressed, RoundedCornerShape(12.dp))
-                                .clickable {
-                                    triggerHaptic()
-                                    launchClockDialPicker(startHourInt, startMinuteInt) { h, m ->
-                                        startHourInt = h
-                                        startMinuteInt = m
-                                    }
-                                }
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
+                    Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(node.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(
+                                text = "${node.scheduledTime} - ${node.scheduledEndTime ?: ""}",
+                                color = LuxAccentGold,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        IconButton(
+                            onClick = { onDelete(node) },
+                            modifier = Modifier.size(24.dp)
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("START TIME", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = String.format(Locale.US, "%02d:%02d", startHourInt, startMinuteInt),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
+                            Icon(Icons.Default.Delete, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(MaterialTheme.colorScheme.background, shape = RoundedCornerShape(12.dp))
-                                .border(1.dp, SurfacePressed, RoundedCornerShape(12.dp))
-                                .clickable {
-                                    triggerHaptic()
-                                    launchClockDialPicker(endHourInt, endMinuteInt) { h, m ->
-                                        endHourInt = h
-                                        endMinuteInt = m
-                                    }
-                                }
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("END TIME", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = String.format(Locale.US, "%02d:%02d", endHourInt, endMinuteInt),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background, shape = RoundedCornerShape(12.dp))
-                            .clickable { highFrictionSelected = !highFrictionSelected }
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Critical Force Friction Rating", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Highlights block edge red to flag complex tasks", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp)
-                        }
-                        Switch(checked = highFrictionSelected, onCheckedChange = { highFrictionSelected = it })
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Button(
-                        onClick = {
-                            triggerHaptic()
-                            if (taskTitle.isNotBlank() && taskMicroTrigger.isNotBlank()) {
-                                val generatedTask = DynamicPlannerTask(
-                                    id = System.currentTimeMillis().toString(),
-                                    title = taskTitle,
-                                    microStep = taskMicroTrigger,
-                                    frictionNotes = taskFrictionByPass,
-                                    dayOfYear = selectedDayOfYear,
-                                    year = selectedYear,
-                                    startHour = startHourInt,
-                                    startMinute = startMinuteInt,
-                                    endHour = endHourInt,
-                                    endMinute = endMinuteInt,
-                                    isHighFriction = highFrictionSelected
-                                )
-
-                                // Local State updates
-                                tasksList.add(generatedTask)
-
-                                // Hand over to kernel background alarm pipeline
-                                alarmScheduler.scheduleTaskAlerts(generatedTask)
-
-                                showCreatorSheet = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text("ENGAGE INTO TIMELINE", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                     }
                 }
             }
         }
     }
+
+    if (showCreator) {
+        TaskCreationDialog(
+            onDismiss = { showCreator = false },
+            onConfirm = { t, d, s, e ->
+                onAdd(t, d, s, e)
+                showCreator = false
+            }
+        )
+    }
+}
+
+@Composable
+fun TaskCreationDialog(onDismiss: () -> Unit, onConfirm: (String, String, String, String) -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    var start by remember { mutableStateOf("") }
+    var end by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = LuxSurface,
+        modifier = Modifier.border(1.dp, LuxAccentGold.copy(alpha = 0.2f), RoundedCornerShape(24.dp)),
+        title = { Text("ARCHITECT OBJECTIVE", color = LuxAccentGold, fontFamily = FontFamily.Monospace, fontSize = 16.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Objective Name", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LuxAccentGold, cursorColor = LuxAccentGold)
+                )
+
+                // Date Picker Trigger
+                Box(modifier = Modifier.fillMaxWidth().clickable {
+                    DatePickerDialog(context, { _, y, m, d ->
+                        date = "$y-${String.format(Locale.US, "%02d", m + 1)}-${String.format(Locale.US, "%02d", d)}"
+                    }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                }) {
+                    OutlinedTextField(
+                        value = date,
+                        onValueChange = {},
+                        label = { Text("Date", color = Color.Gray) },
+                        readOnly = true,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(disabledBorderColor = LuxAccentGold, disabledTextColor = Color.White)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(modifier = Modifier.weight(1f).clickable {
+                        TimePickerDialog(context, { _, h, m ->
+                            start = String.format(Locale.US, "%02d:%02d", h, m)
+                        }, 9, 0, true).show()
+                    }) {
+                        OutlinedTextField(
+                            value = start,
+                            onValueChange = {},
+                            label = { Text("Start", color = Color.Gray) },
+                            readOnly = true,
+                            enabled = false,
+                            colors = OutlinedTextFieldDefaults.colors(disabledBorderColor = LuxAccentGold, disabledTextColor = Color.White)
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f).clickable {
+                        TimePickerDialog(context, { _, h, m ->
+                            end = String.format(Locale.US, "%02d:%02d", h, m)
+                        }, 10, 0, true).show()
+                    }) {
+                        OutlinedTextField(
+                            value = end,
+                            onValueChange = {},
+                            label = { Text("End", color = Color.Gray) },
+                            readOnly = true,
+                            enabled = false,
+                            colors = OutlinedTextFieldDefaults.colors(disabledBorderColor = LuxAccentGold, disabledTextColor = Color.White)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (title.isNotBlank() && date.isNotBlank() && start.isNotBlank()) onConfirm(title, date, start, end) },
+                colors = ButtonDefaults.buttonColors(containerColor = LuxAccentGold)
+            ) {
+                Text("ENGAGE", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }

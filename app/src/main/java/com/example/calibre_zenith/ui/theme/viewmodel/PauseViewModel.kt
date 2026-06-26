@@ -3,11 +3,15 @@ package com.example.calibre_zenith.ui.viewmodel
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.calibre_zenith.data.GeminiRepository
+import com.example.calibre_zenith.data.RoadmapPersistence
+import com.example.calibre_zenith.data.TaskNode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +43,25 @@ class PauseViewModel : ViewModel() {
     )
 
     var isGeminiOptimizing by mutableStateOf(false)
+
+    // --- SHARED ROADMAP DATA ---
+    val roadmapNodes = mutableStateListOf<TaskNode>()
+    private var roadmapInitialized = false
+
+    fun initializeRoadmap(context: Context) {
+        if (!roadmapInitialized) {
+            roadmapNodes.clear()
+            roadmapNodes.addAll(RoadmapPersistence.loadRoadmap(context))
+            roadmapInitialized = true
+        }
+    }
+
+    fun triggerRoadmapSave(context: Context) {
+        viewModelScope.launch {
+            // Optional: add debounce here if needed, or save immediately for critical changes
+            RoadmapPersistence.saveRoadmap(context, roadmapNodes)
+        }
+    }
 
     // --- GEMINI DATA FLOWS (Required by PreFlightScreen) ---
     private val _taskName = MutableStateFlow("")
