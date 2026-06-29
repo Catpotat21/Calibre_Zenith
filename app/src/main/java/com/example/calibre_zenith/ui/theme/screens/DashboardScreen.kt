@@ -17,12 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 
-// =================================================================
-// 🎨 SHARED LUXURY PALETTE
-// =================================================================
 private val LuxAccentGold = Color(0xFFD4AF37)
-private val LuxDarkBg = Color(0xFF050507)
-private val LuxSurface = Color(0xFF141419)
+private val LuxDarkBg     = Color(0xFF050507)
+private val LuxSurface    = Color(0xFF141419)
+private val CyberCyan     = Color(0xFF00F5FF)  // ← Combat accent
 
 @Composable
 fun DashboardScreen(viewModel: PauseViewModel) {
@@ -60,8 +58,6 @@ fun DashboardScreen(viewModel: PauseViewModel) {
 
         Spacer(modifier = Modifier.height(64.dp))
 
-        // --- INTERFACE HUB ACTIONS ---
-
         DashboardButton(
             text = "PLANNER CANVAS",
             onClick = {
@@ -90,6 +86,18 @@ fun DashboardScreen(viewModel: PauseViewModel) {
             },
             isSecondary = true
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        DashboardButton(
+            text = "⚔ COMBAT ARENA",
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.navigateToCombat()
+            },
+            isSecondary = true,
+            accentColor = CyberCyan  // ← distinct combat color
+        )
     }
 }
 
@@ -97,7 +105,8 @@ fun DashboardScreen(viewModel: PauseViewModel) {
 fun DashboardButton(
     text: String,
     onClick: () -> Unit,
-    isSecondary: Boolean = false
+    isSecondary: Boolean = false,
+    accentColor: Color = LuxAccentGold
 ) {
     Button(
         onClick = onClick,
@@ -106,10 +115,12 @@ fun DashboardButton(
             .height(64.dp),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSecondary) LuxSurface else LuxAccentGold,
-            contentColor = if (isSecondary) LuxAccentGold else Color.Black
+            containerColor = if (isSecondary) LuxSurface else accentColor,
+            contentColor   = if (isSecondary) accentColor else Color.Black
         ),
-        border = if (isSecondary) androidx.compose.foundation.BorderStroke(1.dp, LuxAccentGold.copy(alpha = 0.5f)) else null
+        border = if (isSecondary)
+            androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.5f))
+        else null
     ) {
         Text(
             text = text,

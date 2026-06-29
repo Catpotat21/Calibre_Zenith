@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose) // Keeps Jetpack Compose compiler active
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -86,6 +87,9 @@ dependencies {
 
     // THE GEMINI AI ENGINE INTEGRATION
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 
     // Local Test Environment Suites
     testImplementation(libs.junit)

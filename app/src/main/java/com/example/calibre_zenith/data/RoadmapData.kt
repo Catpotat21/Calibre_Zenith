@@ -15,7 +15,9 @@ class TaskNode(
     initialScheduledDate: String? = null,
     initialScheduledTime: String? = null,
     initialScheduledEndTime: String? = null,
-    initialFlairs: List<String> = emptyList()
+    initialFlairs: List<String> = emptyList(),
+    initialHpDrain: Int = 10,            // ← NEW
+    initialAssignedBossId: Int? = null   // ← NEW
 ) {
     var title by mutableStateOf(initialTitle)
     var details by mutableStateOf(initialDetails)
@@ -25,9 +27,12 @@ class TaskNode(
     var scheduledEndTime by mutableStateOf(initialScheduledEndTime)
     val flairs = mutableStateListOf<String>().apply { addAll(initialFlairs) }
     val children = mutableStateListOf<TaskNode>()
+    var hpDrain by mutableStateOf(initialHpDrain)              // ← NEW
+    var assignedBossId by mutableStateOf(initialAssignedBossId) // ← NEW
 }
 
 object RoadmapPersistence {
+
     private fun nodeToJson(node: TaskNode): JSONObject {
         val json = JSONObject()
         json.put("id", node.id)
@@ -37,6 +42,8 @@ object RoadmapPersistence {
         json.put("scheduledDate", node.scheduledDate ?: JSONObject.NULL)
         json.put("scheduledTime", node.scheduledTime ?: JSONObject.NULL)
         json.put("scheduledEndTime", node.scheduledEndTime ?: JSONObject.NULL)
+        json.put("hpDrain", node.hpDrain)
+        json.put("assignedBossId", node.assignedBossId ?: JSONObject.NULL)
         val flairsArray = JSONArray()
         node.flairs.forEach { flairsArray.put(it) }
         json.put("flairs", flairsArray)
@@ -55,6 +62,8 @@ object RoadmapPersistence {
             initialScheduledDate = if (json.isNull("scheduledDate")) null else json.optString("scheduledDate"),
             initialScheduledTime = if (json.isNull("scheduledTime")) null else json.optString("scheduledTime"),
             initialScheduledEndTime = if (json.isNull("scheduledEndTime")) null else json.optString("scheduledEndTime"),
+            initialHpDrain = json.optInt("hpDrain", 10),
+            initialAssignedBossId = if (json.isNull("assignedBossId")) null else json.optInt("assignedBossId"),
             initialFlairs = mutableListOf<String>().apply {
                 val arr = json.optJSONArray("flairs")
                 if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
@@ -70,9 +79,7 @@ object RoadmapPersistence {
     }
 
     private fun recursiveExtractScheduled(node: TaskNode, list: MutableList<TaskNode>) {
-        if (!node.scheduledDate.isNullOrBlank()) {
-            list.add(node)
-        }
+        if (!node.scheduledDate.isNullOrBlank()) list.add(node)
         node.children.forEach { recursiveExtractScheduled(it, list) }
     }
 
@@ -83,7 +90,6 @@ object RoadmapPersistence {
             nodes.forEach { rootArray.put(nodeToJson(it)) }
             file.writeText(rootArray.toString())
 
-            // Also save flattened version for external sync/compatibility
             val scheduledList = mutableListOf<TaskNode>()
             nodes.forEach { recursiveExtractScheduled(it, scheduledList) }
             val plannerFile = File(context.filesDir, "planner_scheduled_tasks.json")
@@ -100,7 +106,9 @@ object RoadmapPersistence {
                 plannerArray.put(obj)
             }
             plannerFile.writeText(plannerArray.toString())
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun loadRoadmap(context: Context): List<TaskNode> {
@@ -116,7 +124,9 @@ object RoadmapPersistence {
                     }
                 }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return nodes
     }
 }

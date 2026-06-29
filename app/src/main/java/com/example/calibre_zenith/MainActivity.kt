@@ -7,17 +7,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import com.example.calibre_zenith.ui.screen.PreFlightScreen
 import com.example.calibre_zenith.ui.theme.CalibreZenithTheme
-import com.example.calibre_zenith.ui.theme.screens.PlannerScreen
+import com.example.calibre_zenith.ui.theme.screens.CombatScreen
 import com.example.calibre_zenith.ui.theme.screens.CognitiveTimerScreen
 import com.example.calibre_zenith.ui.theme.screens.DashboardScreen
-import com.example.calibre_zenith.ui.theme.screens.PauseScreen
 import com.example.calibre_zenith.ui.theme.screens.GeneratingScreen
-import com.example.calibre_zenith.ui.theme.screens.RoadmapScreen // Added Roadmap import
+import com.example.calibre_zenith.ui.theme.screens.PauseScreen
+import com.example.calibre_zenith.ui.theme.screens.PlannerScreen
+import com.example.calibre_zenith.ui.theme.screens.RoadmapScreen
+import com.example.calibre_zenith.ui.viewmodel.CombatViewModel
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: PauseViewModel by viewModels()
+    // ← single instance of each, no duplicates
+    private val pauseViewModel: PauseViewModel by viewModels()
+    private val combatViewModel: CombatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,17 +30,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CalibreZenithTheme {
-                // Observable Compose State Routing
-                val currentScreen = viewModel.currentScreen
+                val currentScreen = pauseViewModel.currentScreen
 
                 when (currentScreen) {
-                    "Dashboard" -> DashboardScreen(viewModel = viewModel)
-                    "Planner" -> PlannerScreen(viewModel = viewModel)
-                    "PreFlight" -> PreFlightScreen(viewModel = viewModel)
-                    "Pause" -> PauseScreen(viewModel = viewModel)
-                    "Timer" -> CognitiveTimerScreen(viewModel = viewModel)
+                    "Dashboard"  -> DashboardScreen(viewModel = pauseViewModel)
+                    "Planner"    -> PlannerScreen(viewModel = pauseViewModel)
+                    "PreFlight"  -> PreFlightScreen(viewModel = pauseViewModel)
+                    "Pause"      -> PauseScreen(viewModel = pauseViewModel)
+                    "Timer"      -> CognitiveTimerScreen(viewModel = pauseViewModel)
                     "Generating" -> GeneratingScreen()
-                    "Roadmap" -> RoadmapScreen(viewModel = viewModel) // FIXED: Passing viewModel
+                    "Roadmap"    -> RoadmapScreen(viewModel = pauseViewModel)
+                    "Combat"     -> CombatScreen(
+                        pauseViewModel  = pauseViewModel,
+                        combatViewModel = combatViewModel
+                    )
                 }
             }
         }
@@ -51,18 +58,17 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme == "calibre" && data.host == "timer") {
-            val title = data.getQueryParameter("title") ?: ""
+            val title     = data.getQueryParameter("title") ?: ""
             val microStep = data.getQueryParameter("microStep") ?: ""
-            val friction = data.getQueryParameter("friction") ?: ""
+            val friction  = data.getQueryParameter("friction") ?: ""
 
-            viewModel.loadCognitiveSession(
-                title = title,
-                launchTrigger = microStep,
-                resistanceProfile = friction,
+            pauseViewModel.loadCognitiveSession(
+                title               = title,
+                launchTrigger       = microStep,
+                resistanceProfile   = friction,
                 isFromScheduledTask = true
             )
-
-            viewModel.navigateToTimerScreen()
+            pauseViewModel.navigateToTimerScreen()
         }
     }
 }
