@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import com.example.calibre_zenith.ui.screen.PreFlightScreen
 import com.example.calibre_zenith.ui.theme.CalibreZenithTheme
+import com.example.calibre_zenith.ui.theme.screens.BossCreationScreen
 import com.example.calibre_zenith.ui.theme.screens.CombatScreen
 import com.example.calibre_zenith.ui.theme.screens.CognitiveTimerScreen
 import com.example.calibre_zenith.ui.theme.screens.DashboardScreen
@@ -19,7 +20,6 @@ import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 
 class MainActivity : ComponentActivity() {
 
-    // ← single instance of each, no duplicates
     private val pauseViewModel: PauseViewModel by viewModels()
     private val combatViewModel: CombatViewModel by viewModels()
 
@@ -33,17 +33,25 @@ class MainActivity : ComponentActivity() {
                 val currentScreen = pauseViewModel.currentScreen
 
                 when (currentScreen) {
-                    "Dashboard"  -> DashboardScreen(viewModel = pauseViewModel)
-                    "Planner"    -> PlannerScreen(viewModel = pauseViewModel)
-                    "PreFlight"  -> PreFlightScreen(viewModel = pauseViewModel)
-                    "Pause"      -> PauseScreen(viewModel = pauseViewModel)
-                    "Timer"      -> CognitiveTimerScreen(viewModel = pauseViewModel)
+                    "Dashboard" -> DashboardScreen(viewModel = pauseViewModel)
+                    "Planner" -> PlannerScreen(viewModel = pauseViewModel)
+                    "PreFlight" -> PreFlightScreen(viewModel = pauseViewModel)
+                    "Pause" -> PauseScreen(viewModel = pauseViewModel)
+                    "Timer" -> CognitiveTimerScreen(viewModel = pauseViewModel)
                     "Generating" -> GeneratingScreen()
-                    "Roadmap"    -> RoadmapScreen(viewModel = pauseViewModel)
-                    "Combat"     -> CombatScreen(
-                        pauseViewModel  = pauseViewModel,
+                    "Roadmap" -> RoadmapScreen(viewModel = pauseViewModel)
+
+                    "BossWorkshop" -> BossCreationScreen(
+                        pauseViewModel = pauseViewModel,
                         combatViewModel = combatViewModel
                     )
+
+                    "Combat" -> CombatScreen(
+                        pauseViewModel = pauseViewModel,
+                        combatViewModel = combatViewModel
+                    )
+
+                    else -> DashboardScreen(viewModel = pauseViewModel)
                 }
             }
         }
@@ -57,15 +65,16 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
+
         if (data.scheme == "calibre" && data.host == "timer") {
-            val title     = data.getQueryParameter("title") ?: ""
+            val title = data.getQueryParameter("title") ?: ""
             val microStep = data.getQueryParameter("microStep") ?: ""
-            val friction  = data.getQueryParameter("friction") ?: ""
+            val friction = data.getQueryParameter("friction") ?: ""
 
             pauseViewModel.loadCognitiveSession(
-                title               = title,
-                launchTrigger       = microStep,
-                resistanceProfile   = friction,
+                title = title,
+                launchTrigger = microStep,
+                resistanceProfile = friction,
                 isFromScheduledTask = true
             )
             pauseViewModel.navigateToTimerScreen()

@@ -90,13 +90,13 @@ fun DashboardScreen(viewModel: PauseViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
 
         DashboardButton(
-            text = "⚔ COMBAT ARENA",
+            text = "⚔ BOSS WORKSHOP",
             onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.navigateToCombat()
+                viewModel.navigateToBossWorkshop()
             },
             isSecondary = true,
-            accentColor = CyberCyan  // ← distinct combat color
+            accentColor = CyberCyan
         )
     }
 }

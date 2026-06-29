@@ -85,6 +85,7 @@ class PauseViewModel : ViewModel() {
     fun navigateToPreFlight() { currentScreen = "PreFlight" }
     fun navigateToPauseScreen() { currentScreen = "Pause" }
     fun navigateToCombat() { currentScreen = "Combat" }
+    fun navigateToBossWorkshop() { currentScreen = "BossWorkshop" }
 
     fun clearSessionAndGoBack() {
         sessionTitle = ""
