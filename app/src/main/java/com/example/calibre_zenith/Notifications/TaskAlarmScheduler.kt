@@ -5,7 +5,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import com.example.calibre_zenith.ui.theme.screens.DynamicPlannerTask
+import com.example.calibre_zenith.data.DynamicPlannerTask
 import java.util.Calendar
 
 class TaskAlarmScheduler(private val context: Context) {

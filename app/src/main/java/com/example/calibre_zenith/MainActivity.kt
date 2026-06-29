@@ -5,16 +5,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import com.example.calibre_zenith.ui.screen.PreFlightScreen
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import com.example.calibre_zenith.ui.theme.CalibreZenithTheme
-import com.example.calibre_zenith.ui.theme.screens.BossCreationScreen
-import com.example.calibre_zenith.ui.theme.screens.CombatScreen
-import com.example.calibre_zenith.ui.theme.screens.CognitiveTimerScreen
-import com.example.calibre_zenith.ui.theme.screens.DashboardScreen
-import com.example.calibre_zenith.ui.theme.screens.GeneratingScreen
-import com.example.calibre_zenith.ui.theme.screens.PauseScreen
-import com.example.calibre_zenith.ui.theme.screens.PlannerScreen
-import com.example.calibre_zenith.ui.theme.screens.RoadmapScreen
+import com.example.calibre_zenith.ui.theme.components.BossDamageOverlay
+import com.example.calibre_zenith.ui.theme.screens.*
 import com.example.calibre_zenith.ui.viewmodel.CombatViewModel
 import com.example.calibre_zenith.ui.viewmodel.PauseViewModel
 
@@ -30,28 +26,31 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CalibreZenithTheme {
-                val currentScreen = pauseViewModel.currentScreen
+                Box(modifier = Modifier.fillMaxSize()) {
+                    val currentScreen = pauseViewModel.currentScreen
 
-                when (currentScreen) {
-                    "Dashboard" -> DashboardScreen(viewModel = pauseViewModel)
-                    "Planner" -> PlannerScreen(viewModel = pauseViewModel)
-                    "PreFlight" -> PreFlightScreen(viewModel = pauseViewModel)
-                    "Pause" -> PauseScreen(viewModel = pauseViewModel)
-                    "Timer" -> CognitiveTimerScreen(viewModel = pauseViewModel)
-                    "Generating" -> GeneratingScreen()
-                    "Roadmap" -> RoadmapScreen(viewModel = pauseViewModel)
+                    when (currentScreen) {
+                        "Dashboard" -> DashboardScreen(viewModel = pauseViewModel)
+                        "Planner" -> PlannerScreen(viewModel = pauseViewModel, combatViewModel = combatViewModel)
+                        "Pause" -> PauseScreen(viewModel = pauseViewModel)
+                        "Timer" -> CognitiveTimerScreen(viewModel = pauseViewModel)
+                        "Generating" -> GeneratingScreen()
+                        "Roadmap" -> RoadmapScreen(viewModel = pauseViewModel, combatViewModel = combatViewModel)
 
-                    "BossWorkshop" -> BossCreationScreen(
-                        pauseViewModel = pauseViewModel,
-                        combatViewModel = combatViewModel
-                    )
+                        "BossWorkshop" -> BossCreationScreen(
+                            pauseViewModel = pauseViewModel,
+                            combatViewModel = combatViewModel
+                        )
 
-                    "Combat" -> CombatScreen(
-                        pauseViewModel = pauseViewModel,
-                        combatViewModel = combatViewModel
-                    )
+                        "Combat" -> CombatScreen(
+                            pauseViewModel = pauseViewModel,
+                            combatViewModel = combatViewModel
+                        )
 
-                    else -> DashboardScreen(viewModel = pauseViewModel)
+                        else -> DashboardScreen(viewModel = pauseViewModel)
+                    }
+
+                    BossDamageOverlay(viewModel = combatViewModel)
                 }
             }
         }

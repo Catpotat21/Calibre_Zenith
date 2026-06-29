@@ -30,6 +30,9 @@ interface CombatDao {
     @Query("SELECT * FROM active_boss")
     fun getAllActiveBosses(): Flow<List<ActiveBoss>>
 
+    @Query("SELECT * FROM active_boss")
+    suspend fun getAllActiveBossesSync(): List<ActiveBoss>
+
     @Query("SELECT * FROM active_boss WHERE bossTemplateId = :templateId LIMIT 1")
     suspend fun getActiveBossByTemplateId(templateId: Int): ActiveBoss?
 

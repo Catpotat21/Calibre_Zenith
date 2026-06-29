@@ -11,7 +11,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+
+data class DamageEffect(
+    val bossName: String,
+    val damage: Int,
+    val currentHp: Int,
+    val maxHp: Int
+)
 
 class CombatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -34,6 +44,9 @@ class CombatViewModel(application: Application) : AndroidViewModel(application) 
         )
 
     // ── Which boss is currently being attacked in the UI ───────
+    private val _damageEffect = MutableSharedFlow<DamageEffect>()
+    val damageEffect: SharedFlow<DamageEffect> = _damageEffect.asSharedFlow()
+
     private val _attackingBossId = MutableStateFlow<Int?>(null)
     val attackingBossId: StateFlow<Int?> = _attackingBossId.asStateFlow()
 
@@ -99,13 +112,50 @@ class CombatViewModel(application: Application) : AndroidViewModel(application) 
         if (assignedBossId == null) return
         viewModelScope.launch {
             val template = bossTemplates.value.find { it.id == assignedBossId }
+            val active = activeBosses.value.find { it.bossTemplateId == assignedBossId } ?: return@launch
+            
             repository.drainHp(assignedBossId, hpDrain)
 
-            // Check defeat after drain
-            val active = activeBosses.value.find { it.bossTemplateId == assignedBossId }
-            val newHp = (active?.currentHp ?: 0) - hpDrain
+            val newHp = (active.currentHp - hpDrain).coerceAtLeast(0)
+            
+            _damageEffect.emit(DamageEffect(
+                bossName = template?.name ?: "BOSS",
+                damage = hpDrain,
+                currentHp = newHp,
+                maxHp = template?.baseHp ?: active.currentHp
+            ))
+
             if (newHp <= 0) {
                 _defeatedBossName.value = template?.name ?: "BOSS"
+            }
+        }
+    }
+
+    fun onTaskCompleted(tags: List<String>, hpDrain: Int) {
+        android.util.Log.d("CombatViewModel", "onTaskCompleted: tags=$tags, hpDrain=$hpDrain")
+        viewModelScope.launch {
+            for (tag in tags) {
+                val match = repository.getActiveBossWithTemplateByTag(tag)
+                android.util.Log.d("CombatViewModel", "Checking tag: $tag, match found: ${match != null}")
+                if (match != null) {
+                    val (active, template) = match
+                    repository.drainHp(template.id, hpDrain)
+                    
+                    val newHp = (active.currentHp - hpDrain).coerceAtLeast(0)
+                    android.util.Log.d("CombatViewModel", "Applied $hpDrain damage to ${template.name}. New HP: $newHp")
+                    
+                    _damageEffect.emit(DamageEffect(
+                        bossName = template.name,
+                        damage = hpDrain,
+                        currentHp = newHp,
+                        maxHp = template.baseHp
+                    ))
+
+                    if (newHp <= 0) {
+                        _defeatedBossName.value = template.name
+                    }
+                    break
+                }
             }
         }
     }

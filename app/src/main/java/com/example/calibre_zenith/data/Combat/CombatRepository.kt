@@ -50,4 +50,20 @@ class CombatRepository(context: Context) {
 
     suspend fun deleteActiveBoss(id: Int) =
         dao.deleteActiveBoss(id)
+
+    suspend fun getActiveBossWithTemplateByTag(tag: String): Pair<ActiveBoss, BossTemplate>? {
+        val activeList = dao.getAllActiveBossesSync()
+        android.util.Log.d("CombatRepository", "getActiveBossWithTemplateByTag: Searching for '$tag'. Active bosses count: ${activeList.size}")
+        for (active in activeList) {
+            val template = dao.getBossTemplateById(active.bossTemplateId)
+            if (template != null) {
+                val tags = template.tags.split(",").map { it.trim().lowercase() }
+                android.util.Log.d("CombatRepository", "Boss '${template.name}' has tags: $tags")
+                if (tags.contains(tag.lowercase())) {
+                    return Pair(active, template)
+                }
+            }
+        }
+        return null
+    }
 }

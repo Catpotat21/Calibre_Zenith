@@ -15,7 +15,7 @@ import com.example.calibre_zenith.data.combat.CombatDao
         BossTemplate::class,
         ActiveBoss::class
     ],
-    version = 3,          // ← bumped from 2
+    version = 4,          // ← bumped from 3
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
